@@ -72,7 +72,7 @@ msix_config:
   identity_name: NavinKumarVerma.SpeedShare
   msix_version: 1.0.6.0
   logo_path: assets/icon.png
-  capabilities: internetClient, privateNetworkClientServer
+  capabilities: internetClient, internetClientServer, privateNetworkClientServer
   install_certificate: false
 
 

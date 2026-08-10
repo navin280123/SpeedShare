@@ -55,9 +55,6 @@ class ReceiveScreenState extends State<ReceiveScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _getIpAddress();
-    _getComputerName();
-    _getDownloadsDirectory();
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 1500),
       vsync: this,
@@ -66,6 +63,17 @@ class ReceiveScreenState extends State<ReceiveScreen>
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.2).animate(
       CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
     );
+
+    _initializeAndAutoStart();
+  }
+
+  Future<void> _initializeAndAutoStart() async {
+    await _getComputerName();
+    _getDownloadsDirectory();
+    await _getIpAddress();
+    if (mounted && !isReceiving) {
+      startReceiving(showNotification: false);
+    }
   }
 
   Future<Directory> _getDefaultDownloadsDirectory() async {
@@ -182,20 +190,47 @@ class ReceiveScreenState extends State<ReceiveScreen>
     }
   }
 
-  void _getIpAddress() async {
+  Future<void> _getIpAddress() async {
     setState(() {
       isLoadingIp = true;
     });
     try {
-      for (var interface in await NetworkInterface.list()) {
+      final interfaces = await NetworkInterface.list();
+      // First pass: find physical Wi-Fi / Ethernet interface
+      for (var interface in interfaces) {
+        final name = interface.name.toLowerCase();
+        if (name.contains('wlan') || name.contains('wi-fi') || name.contains('eth') || name.contains('en')) {
+          for (var addr in interface.addresses) {
+            if (addr.type == InternetAddressType.IPv4 &&
+                !addr.address.startsWith('127.') &&
+                !addr.address.startsWith('169.254.') &&
+                !addr.address.startsWith('0.')) {
+              if (mounted) {
+                setState(() {
+                  ipAddress = addr.address;
+                  isLoadingIp = false;
+                });
+              }
+              return;
+            }
+          }
+        }
+      }
+
+      // Second pass: any valid non-loopback IPv4
+      for (var interface in interfaces) {
+        if (interface.name.toLowerCase().contains('lo')) continue;
         for (var addr in interface.addresses) {
           if (addr.type == InternetAddressType.IPv4 &&
               !addr.address.startsWith('127.') &&
+              !addr.address.startsWith('169.254.') &&
               !addr.address.startsWith('0.')) {
-            setState(() {
-              ipAddress = addr.address;
-              isLoadingIp = false;
-            });
+            if (mounted) {
+              setState(() {
+                ipAddress = addr.address;
+                isLoadingIp = false;
+              });
+            }
             return;
           }
         }
@@ -203,13 +238,15 @@ class ReceiveScreenState extends State<ReceiveScreen>
     } catch (e) {
       debugPrint('Error getting IP address: $e');
     }
-    setState(() {
-      ipAddress = 'Not available';
-      isLoadingIp = false;
-    });
+    if (mounted) {
+      setState(() {
+        ipAddress = 'Not available';
+        isLoadingIp = false;
+      });
+    }
   }
 
-  void _getComputerName() async {
+  Future<void> _getComputerName() async {
     try {
       final name = await DeviceNameManager.getDeviceName();
       if (mounted) {
@@ -226,18 +263,43 @@ class ReceiveScreenState extends State<ReceiveScreen>
     }
   }
 
-  void startReceiving() async {
+  void startReceiving({bool showNotification = true}) async {
+    if (isReceiving && serverSocket != null) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       final listenPort = prefs.getInt('port') ?? 8080;
 
-      serverSocket = await ServerSocket.bind(InternetAddress.anyIPv4, listenPort);
+      try {
+        serverSocket?.close();
+      } catch (_) {}
+      serverSocket = await ServerSocket.bind(InternetAddress.anyIPv4, listenPort, shared: true);
 
-      _discoverySocket = await RawDatagramSocket.bind(
-        InternetAddress.anyIPv4,
-        8081,
-        reuseAddress: true,
-      );
+      try {
+        _discoverySocket?.close();
+      } catch (_) {}
+
+      try {
+        _discoverySocket = await RawDatagramSocket.bind(
+          InternetAddress.anyIPv4,
+          8081,
+          reuseAddress: true,
+        );
+      } catch (_) {
+        _discoverySocket = await RawDatagramSocket.bind(
+          InternetAddress.anyIPv4,
+          8081,
+        );
+      }
+
+      _discoverySocket?.broadcastEnabled = true;
+
+      // Join UDP Multicast group for seamless discovery across Wi-Fi networks
+      try {
+        _discoverySocket?.joinMulticast(InternetAddress('239.255.255.250'));
+      } catch (e) {
+        debugPrint('Multicast join error: $e');
+      }
+
       final interfaces = await NetworkInterface.list();
       final localIps = interfaces
           .expand((i) => i.addresses)
@@ -245,9 +307,9 @@ class ReceiveScreenState extends State<ReceiveScreen>
           .toSet();
       localIps.addAll(['127.0.0.1', '::1']);
 
-      _discoverySocket!.listen((event) {
+      _discoverySocket?.listen((event) {
         if (event == RawSocketEvent.read) {
-          final datagram = _discoverySocket!.receive();
+          final datagram = _discoverySocket?.receive();
           if (datagram != null) {
             // Ignore self discovery packets
             if (localIps.contains(datagram.address.address)) {
@@ -259,11 +321,22 @@ class ReceiveScreenState extends State<ReceiveScreen>
               final responseMessage = utf8.encode(
                 'SPEEDSHARE_RESPONSE:$computerName:READY',
               );
-              _discoverySocket!.send(
-                responseMessage,
-                datagram.address,
-                datagram.port,
-              );
+              // Send direct response
+              try {
+                _discoverySocket?.send(
+                  responseMessage,
+                  datagram.address,
+                  datagram.port,
+                );
+              } catch (_) {}
+              // Send to multicast group
+              try {
+                _discoverySocket?.send(
+                  responseMessage,
+                  InternetAddress('239.255.255.250'),
+                  8081,
+                );
+              } catch (_) {}
             }
           }
         }
@@ -284,26 +357,27 @@ class ReceiveScreenState extends State<ReceiveScreen>
 
       _startAnnouncing();
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Row(
-            children: [
-              Icon(Icons.check_circle_rounded, color: Colors.white),
-              SizedBox(width: 10),
-              Text('Ready to receive files'),
-            ],
+      if (showNotification && mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.check_circle_rounded, color: Colors.white),
+                SizedBox(width: 10),
+                Text('Ready to receive files'),
+              ],
+            ),
+            backgroundColor: const Color(0xFF2AB673),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            margin: const EdgeInsets.all(20),
           ),
-          backgroundColor: const Color(0xFF2AB673),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          margin: const EdgeInsets.all(20),
-        ),
-      );
+        );
+      }
 
       serverSocket!.listen((client) {
         // Protocol state variables
@@ -780,14 +854,21 @@ class ReceiveScreenState extends State<ReceiveScreen>
             InternetAddress('255.255.255.255'),
             8081,
           );
-        } catch (e) {
-          // Ignore
-        }
+        } catch (_) {}
+
+        // Multicast
+        try {
+          _discoverySocket!.send(
+            message,
+            InternetAddress('239.255.255.250'),
+            8081,
+          );
+        } catch (_) {}
 
         // Broadcast to subnets
         final interfaces = await NetworkInterface.list();
         for (var interface in interfaces) {
-          if (interface.name.contains('lo')) continue;
+          if (interface.name.toLowerCase().contains('lo')) continue;
           for (var addr in interface.addresses) {
             if (addr.type == InternetAddressType.IPv4) {
               final parts = addr.address.split('.');
@@ -799,9 +880,7 @@ class ReceiveScreenState extends State<ReceiveScreen>
                     InternetAddress('$subnet.255'),
                     8081,
                   );
-                } catch (e) {
-                  // Ignore
-                }
+                } catch (_) {}
               }
             }
           }

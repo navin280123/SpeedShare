@@ -89,50 +89,66 @@ class FileSenderScreenState extends State<FileSenderScreen>
 
   void startScanning() {
     if (!mounted) return;
+    _scanTimer?.cancel();
     setState(() {
       isScanning = true;
     });
     discoverWithUDP();
-    _scanTimer = Timer(Duration(seconds: 5), () {
-      if (mounted) {
-        setState(() {
-          isScanning = false;
-        });
-      }
-    });
   }
 
   void discoverWithUDP() async {
     try {
+      if (!mounted) return;
       setState(() {
         isScanning = true;
-        availableReceivers.clear();
-        _filteredReceivers = [];
       });
 
       // Permissions are already handled by PermissionManager at app startup.
-      // Do NOT request them again here — it causes duplicate dialogs.
+      
+      // Close previous discovery socket if open
+      try {
+        _discoverySocket?.close();
+      } catch (_) {}
 
-      // Use only reuseAddress (without reusePort which is unsupported)
+      // 1. Send UDP broadcast and multicast discovery
+      await _sendUdpDiscovery();
+
+      // 2. Concurrently run direct TCP subnet scanner
+      await checkDirectTCPConnections();
+    } catch (e) {
+      debugPrint('Discovery error: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          isScanning = false;
+          _filteredReceivers = _filterReceivers();
+        });
+      }
+    }
+  }
+
+  Future<void> _sendUdpDiscovery() async {
+    try {
       try {
         _discoverySocket = await RawDatagramSocket.bind(
           InternetAddress.anyIPv4,
           0,
-          reuseAddress: true, // Only use reuseAddress
+          reuseAddress: true,
         );
       } catch (e) {
-        debugPrint('Socket binding error: $e');
-        // Try binding without any options
         _discoverySocket = await RawDatagramSocket.bind(
           InternetAddress.anyIPv4,
           0,
         );
       }
 
-      // Set broadcast option which is important for discovery
-      _discoverySocket!.broadcastEnabled = true;
+      _discoverySocket?.broadcastEnabled = true;
 
-      // Get local IPs to filter out self-device
+      // Join UDP Multicast group
+      try {
+        _discoverySocket?.joinMulticast(InternetAddress('239.255.255.250'));
+      } catch (_) {}
+
       final interfaces = await NetworkInterface.list();
       final localIps = interfaces
           .expand((i) => i.addresses)
@@ -142,9 +158,9 @@ class FileSenderScreenState extends State<FileSenderScreen>
 
       final myDeviceName = await DeviceNameManager.getDeviceName();
 
-      _discoverySocket!.listen((event) {
+      _discoverySocket?.listen((event) {
         if (event == RawSocketEvent.read) {
-          final datagram = _discoverySocket!.receive();
+          final datagram = _discoverySocket?.receive();
           if (datagram != null) {
             final message = utf8.decode(datagram.data);
             if (message.startsWith('SPEEDSHARE_RESPONSE:')) {
@@ -160,14 +176,11 @@ class FileSenderScreenState extends State<FileSenderScreen>
 
                 if (mounted) {
                   setState(() {
-                    if (!availableReceivers.any(
-                      (device) => device.ip == ipAddress,
-                    )) {
-                      final newDevice = ReceiverDevice(
+                    if (!availableReceivers.any((device) => device.ip == ipAddress)) {
+                      availableReceivers.add(ReceiverDevice(
                         name: deviceName,
                         ip: ipAddress,
-                      );
-                      availableReceivers.add(newDevice);
+                      ));
                       _filteredReceivers = _filterReceivers();
                     }
                   });
@@ -179,92 +192,61 @@ class FileSenderScreenState extends State<FileSenderScreen>
       }, onError: (e) {
         if (e is SocketException &&
             (e.osError?.errorCode == 65 || e.osError?.errorCode == 51)) {
-          // Ignore expected "No route to host" / "Network unreachable" on inactive virtual interfaces
           return;
         }
         debugPrint('UDP discovery socket error: $e');
       });
 
-      // Send discovery messages with error handling
+      final message = utf8.encode('SPEEDSHARE_DISCOVERY');
+
+      // Global broadcast
       try {
-        final message = utf8.encode('SPEEDSHARE_DISCOVERY');
+        _discoverySocket?.send(
+          message,
+          InternetAddress('255.255.255.255'),
+          8081,
+        );
+      } catch (_) {}
 
-        // Try global broadcast first
-        try {
-          _discoverySocket!.send(
-            message,
-            InternetAddress('255.255.255.255'),
-            8081,
-          );
-        } catch (e) {
-          // Ignore
-        }
+      // Multicast
+      try {
+        _discoverySocket?.send(
+          message,
+          InternetAddress('239.255.255.250'),
+          8081,
+        );
+      } catch (_) {}
 
-        for (var interface in interfaces) {
-          if (interface.name.contains('lo')) continue;
-          for (var addr in interface.addresses) {
-            if (addr.type == InternetAddressType.IPv4) {
-              final parts = addr.address.split('.');
-              if (parts.length == 4) {
-                final subnet = parts.sublist(0, 3).join('.');
-
-                // Try sending to broadcast address first - most important
-                try {
-                  _discoverySocket!.send(
-                    message,
-                    InternetAddress('$subnet.255'),
-                    8081,
-                  );
-                } catch (e) {
-                  // Ignore
-                }
-
-                // Try gateway and a few specific IPs
-                try {
-                  _discoverySocket!.send(
-                    message,
-                    InternetAddress('$subnet.1'),
-                    8081,
-                  );
-                  for (int i = 2; i < 5; i++) {
-                    _discoverySocket!.send(
-                      message,
-                      InternetAddress('$subnet.$i'),
-                      8081,
-                    );
-                  }
-                } catch (e) {
-                  debugPrint('Failed to send to specific IPs: $e');
-                }
-              }
+      // Subnet broadcasts
+      for (var interface in interfaces) {
+        if (interface.name.toLowerCase().contains('lo')) continue;
+        for (var addr in interface.addresses) {
+          if (addr.type == InternetAddressType.IPv4) {
+            final parts = addr.address.split('.');
+            if (parts.length == 4) {
+              final subnet = parts.sublist(0, 3).join('.');
+              try {
+                _discoverySocket?.send(
+                  message,
+                  InternetAddress('$subnet.255'),
+                  8081,
+                );
+              } catch (_) {}
             }
           }
         }
-      } catch (e) {
-        debugPrint('Network interface error: $e');
       }
-
-      // Set a timeout to check results
-      Timer(Duration(seconds: 2), () {
-        if (mounted) {
-          if (availableReceivers.isEmpty) {
-            checkDirectTCPConnections();
-          } else {
-            setState(() {
-              isScanning = false;
-              _filteredReceivers = _filterReceivers();
-            });
-          }
-        }
-      });
     } catch (e) {
-      debugPrint('UDP discovery error: $e');
-      if (mounted) checkDirectTCPConnections();
+      debugPrint('UDP discovery send error: $e');
     }
   }
 
-  void checkDirectTCPConnections() async {
+  Future<void> checkDirectTCPConnections() async {
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final targetPort = prefs.getInt('port') ?? 8080;
+      final myName = await DeviceNameManager.getDeviceName();
+
       final interfaces = await NetworkInterface.list();
       final localIps = interfaces
           .expand((i) => i.addresses)
@@ -272,28 +254,54 @@ class FileSenderScreenState extends State<FileSenderScreen>
           .toSet();
       localIps.addAll(['127.0.0.1', '::1']);
 
-      for (var interface in interfaces) {
-        if (interface.name.contains('lo')) continue;
+      // Collect non-loopback active IPv4 interfaces
+      final candidateInterfaces = interfaces.where((i) {
+        final name = i.name.toLowerCase();
+        return !name.contains('lo') && !name.contains('virtual') && !name.contains('loopback');
+      }).toList();
+
+      final interfacesToScan = candidateInterfaces.isNotEmpty ? candidateInterfaces : interfaces;
+
+      for (var interface in interfacesToScan) {
+        if (interface.name.toLowerCase().contains('lo')) continue;
         for (var addr in interface.addresses) {
-          if (addr.type == InternetAddressType.IPv4) {
+          if (addr.type == InternetAddressType.IPv4 &&
+              !addr.address.startsWith('127.') &&
+              !addr.address.startsWith('169.254.')) {
             final parts = addr.address.split('.');
             if (parts.length == 4) {
               final prefix = parts.sublist(0, 3).join('.');
-              final ipsToScan = <String>[];
-              for (int i = 1; i <= 254; i++) {
-                final targetIp = '$prefix.$i';
-                if (!localIps.contains(targetIp)) {
-                  ipsToScan.add(targetIp);
-                }
+              final currentOctet = int.tryParse(parts[3]) ?? 1;
+
+              // Priority scan order:
+              // 1. Gateway (.1) and immediate neighbors (+/- 20 from host IP)
+              // 2. Rest of subnet (1..254)
+              final prioritySet = <int>{};
+              prioritySet.add(1); // Gateway
+              for (int delta = 1; delta <= 20; delta++) {
+                if (currentOctet - delta >= 1) prioritySet.add(currentOctet - delta);
+                if (currentOctet + delta <= 254) prioritySet.add(currentOctet + delta);
               }
-              int chunkSize = 30;
+              for (int i = 1; i <= 254; i++) {
+                prioritySet.add(i);
+              }
+
+              final ipsToScan = prioritySet
+                  .map((i) => '$prefix.$i')
+                  .where((ip) => !localIps.contains(ip))
+                  .toList();
+
+              // Concurrently scan in batches of 40
+              const int chunkSize = 40;
               for (int j = 0; j < ipsToScan.length; j += chunkSize) {
-                if (!mounted || !isScanning) break;
+                if (!mounted) break;
                 final end = (j + chunkSize < ipsToScan.length)
                     ? j + chunkSize
                     : ipsToScan.length;
                 final chunk = ipsToScan.sublist(j, end);
-                await Future.wait(chunk.map((ip) => checkReceiver(ip)));
+                await Future.wait(
+                  chunk.map((ip) => _probeReceiverTcp(ip, targetPort, myName)),
+                );
               }
             }
           }
@@ -301,21 +309,12 @@ class FileSenderScreenState extends State<FileSenderScreen>
       }
     } catch (e) {
       debugPrint('TCP discovery error: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          isScanning = false;
-          _filteredReceivers = _filterReceivers();
-        });
-      }
     }
   }
 
-  Future<void> checkReceiver(String ip) async {
+  Future<void> _probeReceiverTcp(String ip, int targetPort, String myName) async {
     Socket? sock;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final targetPort = prefs.getInt('port') ?? 8080;
       sock = await Socket.connect(
         ip,
         targetPort,
@@ -324,7 +323,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
 
       final completer = Completer<String?>();
 
-      Timer(const Duration(milliseconds: 800), () {
+      Timer(const Duration(milliseconds: 600), () {
         if (!completer.isCompleted) {
           completer.complete(null);
         }
@@ -344,13 +343,12 @@ class FileSenderScreenState extends State<FileSenderScreen>
         }
       });
 
-      sock.write('SPEEDSHARE_PING');
+      sock.write('SPEEDSHARE_PING\n');
       await sock.flush();
 
       final deviceName = await completer.future;
       sock.destroy();
 
-      final myName = await DeviceNameManager.getDeviceName();
       if (deviceName != null &&
           deviceName.isNotEmpty &&
           deviceName != myName &&
