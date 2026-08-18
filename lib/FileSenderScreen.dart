@@ -12,6 +12,8 @@ import 'package:speedsharemob/DeviceNameManager.dart';
 import 'package:speedsharemob/NetworkStatusWidget.dart';
 import 'package:speedsharemob/SpeedShareAppBar.dart';
 import 'package:speedsharemob/NotificationService.dart';
+import 'package:speedsharemob/SharedContentService.dart';
+import 'package:desktop_drop/desktop_drop.dart';
 
 class FileSenderScreen extends StatefulWidget {
   const FileSenderScreen({super.key});
@@ -42,6 +44,8 @@ class FileSenderScreenState extends State<FileSenderScreen>
   int _selectedReceiverIndex = -1;
   Timer? _discoveryTimer;
   RawDatagramSocket? _discoverySocket;
+  StreamSubscription<List<String>>? _sharedFilesSub;
+  bool _isDraggingOver = false;
 
   int _currentStep = 1;
   String _searchQuery = '';
@@ -67,6 +71,21 @@ class FileSenderScreenState extends State<FileSenderScreen>
       if (mounted) startScanning();
     });
 
+    // Check if any files were shared/queued before this screen mounted
+    final pending = SharedContentService().pendingFiles;
+    if (pending.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        loadFilesFromPaths(pending);
+        SharedContentService().clearPendingFiles();
+      });
+    }
+
+    // Listen for live incoming shared files (intents, drops, CLI)
+    _sharedFilesSub = SharedContentService().onFilesReceived.listen((paths) {
+      if (mounted && paths.isNotEmpty) {
+        loadFilesFromPaths(paths);
+      }
+    });
   }
 
   void _loadSenderDeviceName() async {
@@ -599,6 +618,72 @@ class FileSenderScreenState extends State<FileSenderScreen>
     }
   }
 
+  /// Loads incoming files from sharing intents, drag-and-drop, or CLI args
+  void loadFilesFromPaths(List<String> filePaths) {
+    if (filePaths.isEmpty) return;
+    List<FileToSend> files = [];
+    int totalSize = 0;
+    for (var path in filePaths) {
+      try {
+        final fileData = File(path);
+        if (fileData.existsSync()) {
+          final fileName = path.split(Platform.isWindows ? '\\' : '/').last;
+          final fileSize = fileData.lengthSync();
+          final fileType = lookupMimeType(path) ?? 'application/octet-stream';
+          files.add(
+            FileToSend(
+              file: fileData,
+              name: fileName,
+              size: fileSize,
+              type: fileType,
+              progress: 0.0,
+              bytesSent: 0,
+              status: 'Pending',
+            ),
+          );
+          totalSize += fileSize;
+        } else {
+          final dir = Directory(path);
+          if (dir.existsSync()) {
+            for (var entity in dir.listSync(recursive: true)) {
+              if (entity is File) {
+                final eName =
+                    entity.path.split(Platform.isWindows ? '\\' : '/').last;
+                final eSize = entity.lengthSync();
+                final eType =
+                    lookupMimeType(entity.path) ?? 'application/octet-stream';
+                files.add(
+                  FileToSend(
+                    file: entity,
+                    name: eName,
+                    size: eSize,
+                    type: eType,
+                    progress: 0.0,
+                    bytesSent: 0,
+                    status: 'Pending',
+                  ),
+                );
+                totalSize += eSize;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Error loading file from path $path: $e');
+      }
+    }
+
+    if (files.isNotEmpty) {
+      _prepareFiles(files, totalSize);
+      _controller.reset();
+      _controller.forward();
+      setState(() {
+        _currentStep = 2;
+      });
+      startScanning();
+    }
+  }
+
   void _prepareFiles(List<FileToSend> files, int totalSize) {
     setState(() {
       _selectedFiles = files;
@@ -949,6 +1034,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
 
   @override
   void dispose() {
+    _sharedFilesSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     _scanTimer?.cancel();
@@ -1216,102 +1302,143 @@ class FileSenderScreenState extends State<FileSenderScreen>
   }
 
   Widget _buildFileSelectArea() {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Lottie.asset(
-            'assets/upload.json',
-            width: 180,
-            height: 180,
-            fit: BoxFit.contain,
-            errorBuilder: (context, error, stackTrace) {
-              return Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF4E6AF3).withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.cloud_upload_rounded,
-                  size: 40,
-                  color: Colors.grey[400],
-                ),
-              );
-            },
+    return DropTarget(
+      onDragEntered: (detail) {
+        setState(() {
+          _isDraggingOver = true;
+        });
+      },
+      onDragExited: (detail) {
+        setState(() {
+          _isDraggingOver = false;
+        });
+      },
+      onDragDone: (detail) {
+        setState(() {
+          _isDraggingOver = false;
+        });
+        final paths = detail.files
+            .map((f) => f.path)
+            .where((p) => p.isNotEmpty)
+            .toList();
+        if (paths.isNotEmpty) {
+          loadFilesFromPaths(paths);
+        }
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOut,
+        margin: const EdgeInsets.all(16.0),
+        decoration: BoxDecoration(
+          color: _isDraggingOver
+              ? const Color(0xFF4E6AF3).withValues(alpha: 0.12)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: _isDraggingOver
+                ? const Color(0xFF4E6AF3)
+                : Colors.transparent,
+            width: 2,
           ),
-          const SizedBox(height: 24),
-          Text(
-            'Select Files to Send',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color:
-                  Theme.of(context).brightness == Brightness.dark
-                      ? Colors.white
-                      : Colors.grey[800],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Lottie.asset(
+              'assets/upload.json',
+              width: 180,
+              height: 180,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF4E6AF3).withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.cloud_upload_rounded,
+                    size: 40,
+                    color: Colors.grey[400],
+                  ),
+                );
+              },
             ),
-          ),
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Text(
-              'Choose files to share with other devices',
-              textAlign: TextAlign.center,
+            const SizedBox(height: 24),
+            Text(
+              _isDraggingOver ? 'Drop files here!' : 'Select Files to Send',
               style: TextStyle(
-                fontSize: 14,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: _isDraggingOver
+                    ? const Color(0xFF4E6AF3)
+                    : (Theme.of(context).brightness == Brightness.dark
+                        ? Colors.white
+                        : Colors.grey[800]),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                _isDraggingOver
+                    ? 'Release to add these files to SpeedShare'
+                    : 'Choose files or drag and drop anywhere to share',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14,
+                  color:
+                      Theme.of(context).brightness == Brightness.dark
+                          ? Colors.grey[400]
+                          : Colors.grey[600],
+                ),
+              ),
+            ),
+            const SizedBox(height: 32),
+            ElevatedButton.icon(
+              onPressed: _pickFile,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Browse Files'),
+              style: ElevatedButton.styleFrom(
+                foregroundColor: Colors.white,
+                backgroundColor: const Color(0xFF4E6AF3),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 2,
+                shadowColor: const Color(0xFF4E6AF3).withValues(alpha: 0.3),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
                 color:
                     Theme.of(context).brightness == Brightness.dark
-                        ? Colors.grey[400]
-                        : Colors.grey[600],
+                        ? Colors.grey[800]
+                        : Colors.grey[100],
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 16,
+                    color: Colors.grey[600],
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Multiple files & Drag & Drop supported',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                  ),
+                ],
               ),
             ),
-          ),
-          const SizedBox(height: 32),
-          ElevatedButton.icon(
-            onPressed: _pickFile,
-            icon: const Icon(Icons.add_rounded),
-            label: const Text('Browse Files'),
-            style: ElevatedButton.styleFrom(
-              foregroundColor: Colors.white,
-              backgroundColor: const Color(0xFF4E6AF3),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              elevation: 2,
-              shadowColor: const Color(0xFF4E6AF3).withValues(alpha: 0.3),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color:
-                  Theme.of(context).brightness == Brightness.dark
-                      ? Colors.grey[800]
-                      : Colors.grey[100],
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.info_outline_rounded,
-                  size: 16,
-                  color: Colors.grey[600],
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Multiple files supported',
-                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -1,11 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:speedsharemob/FileSenderScreen.dart';
 import 'package:speedsharemob/ReceiveScreen.dart';
 import 'package:speedsharemob/SettingsScreen.dart';
 import 'package:speedsharemob/SyncScreen.dart';
 import 'package:speedsharemob/DeviceNameManager.dart';
 import 'package:speedsharemob/PermissionManager.dart';
+import 'package:speedsharemob/SharedContentService.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -20,6 +23,10 @@ class _MainScreenState extends State<MainScreen>
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   String computerName = '';
+  final GlobalKey<FileSenderScreenState> _fileSenderKey =
+      GlobalKey<FileSenderScreenState>();
+  StreamSubscription<List<String>>? _sharedFilesSub;
+  bool _isWindowDragging = false;
 
   final List<Map<String, dynamic>> _navigationOptions = [
     {'title': 'Home', 'icon': Icons.home_rounded},
@@ -46,10 +53,27 @@ class _MainScreenState extends State<MainScreen>
     );
 
     _animationController.forward();
+
+    // Check if initial files were passed
+    final pending = SharedContentService().pendingFiles;
+    if (pending.isNotEmpty) {
+      _selectedIndex = 1;
+    }
+
+    // Listen for incoming files from system sharing or CLI or drops
+    _sharedFilesSub = SharedContentService().onFilesReceived.listen((paths) {
+      if (mounted && paths.isNotEmpty) {
+        setState(() {
+          _selectedIndex = 1; // Switch to Send Screen
+        });
+        _fileSenderKey.currentState?.loadFilesFromPaths(paths);
+      }
+    });
   }
 
   @override
   void dispose() {
+    _sharedFilesSub?.cancel();
     _animationController.dispose();
     super.dispose();
   }
@@ -77,100 +101,199 @@ class _MainScreenState extends State<MainScreen>
       index: _selectedIndex,
       children: [
         _buildHomeScreen(), // Index 0: Home Screen
-        FileSenderScreen(), // Index 1: Send
-        ReceiveScreen(), // Index 2: Receive
-        SyncScreen(), // Index 3: Sync
-        SettingsScreen(), // Index 4: Settings
+        FileSenderScreen(key: _fileSenderKey), // Index 1: Send
+        const ReceiveScreen(), // Index 2: Receive
+        const SyncScreen(), // Index 3: Sync
+        const SettingsScreen(), // Index 4: Settings
       ],
     );
 
-    return Scaffold(
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          if (constraints.maxWidth >= 600) {
-            // Desktop / Tablet layout
-            return Row(
-              children: [
-                NavigationRail(
-                  selectedIndex: _selectedIndex,
-                  onDestinationSelected: (index) {
-                    setState(() {
-                      _selectedIndex = index;
-                    });
-                  },
-                  labelType: NavigationRailLabelType.all,
-                  destinations:
-                      _navigationOptions
-                          .map(
-                            (option) => NavigationRailDestination(
-                              icon: Icon(option['icon']),
-                              label: Text(option['title']),
-                            ),
-                          )
-                          .toList(),
-                  backgroundColor:
-                      Theme.of(
-                        context,
-                      ).bottomNavigationBarTheme.backgroundColor,
-                  selectedIconTheme: IconThemeData(
-                    color:
-                        Theme.of(
-                          context,
-                        ).bottomNavigationBarTheme.selectedItemColor,
-                  ),
-                  unselectedIconTheme: IconThemeData(
-                    color:
-                        Theme.of(
-                          context,
-                        ).bottomNavigationBarTheme.unselectedItemColor,
-                  ),
-                  selectedLabelTextStyle: TextStyle(
-                    color:
-                        Theme.of(
-                          context,
-                        ).bottomNavigationBarTheme.selectedItemColor,
-                  ),
-                  unselectedLabelTextStyle: TextStyle(
-                    color:
-                        Theme.of(
-                          context,
-                        ).bottomNavigationBarTheme.unselectedItemColor,
-                  ),
-                ),
-                VerticalDivider(
-                  thickness: 1,
-                  width: 1,
-                  color: Colors.grey.withValues(alpha: 0.2),
-                ),
-                Expanded(child: body),
-              ],
-            );
-          } else {
-            // Mobile layout
-            return body;
-          }
-        },
+    return DropTarget(
+      onDragEntered: (detail) {
+        setState(() {
+          _isWindowDragging = true;
+        });
+      },
+      onDragExited: (detail) {
+        setState(() {
+          _isWindowDragging = false;
+        });
+      },
+      onDragDone: (detail) {
+        setState(() {
+          _isWindowDragging = false;
+        });
+        final paths = detail.files
+            .map((f) => f.path)
+            .where((p) => p.isNotEmpty)
+            .toList();
+        if (paths.isNotEmpty) {
+          SharedContentService().emitFiles(paths);
+          setState(() {
+            _selectedIndex = 1;
+          });
+          _fileSenderKey.currentState?.loadFilesFromPaths(paths);
+        }
+      },
+      child: Stack(
+        children: [
+          Scaffold(
+            body: LayoutBuilder(
+              builder: (context, constraints) {
+                if (constraints.maxWidth >= 600) {
+                  // Desktop / Tablet layout
+                  return Row(
+                    children: [
+                      NavigationRail(
+                        selectedIndex: _selectedIndex,
+                        onDestinationSelected: (index) {
+                          setState(() {
+                            _selectedIndex = index;
+                          });
+                        },
+                        labelType: NavigationRailLabelType.all,
+                        destinations:
+                            _navigationOptions
+                                .map(
+                                  (option) => NavigationRailDestination(
+                                    icon: Icon(option['icon']),
+                                    label: Text(option['title']),
+                                  ),
+                                )
+                                .toList(),
+                        backgroundColor:
+                            Theme.of(
+                              context,
+                            ).bottomNavigationBarTheme.backgroundColor,
+                        selectedIconTheme: IconThemeData(
+                          color:
+                              Theme.of(
+                                context,
+                              ).bottomNavigationBarTheme.selectedItemColor,
+                        ),
+                        unselectedIconTheme: IconThemeData(
+                          color:
+                              Theme.of(
+                                context,
+                              ).bottomNavigationBarTheme.unselectedItemColor,
+                        ),
+                        selectedLabelTextStyle: TextStyle(
+                          color:
+                              Theme.of(
+                                context,
+                              ).bottomNavigationBarTheme.selectedItemColor,
+                        ),
+                        unselectedLabelTextStyle: TextStyle(
+                          color:
+                              Theme.of(
+                                context,
+                              ).bottomNavigationBarTheme.unselectedItemColor,
+                        ),
+                      ),
+                      VerticalDivider(
+                        thickness: 1,
+                        width: 1,
+                        color: Colors.grey.withValues(alpha: 0.2),
+                      ),
+                      Expanded(child: body),
+                    ],
+                  );
+                } else {
+                  // Mobile layout
+                  return body;
+                }
+              },
+            ),
+            bottomNavigationBar:
+                MediaQuery.of(context).size.width >= 600
+                    ? const SizedBox.shrink() // Hide on desktop
+                    : BottomNavigationBar(
+                      currentIndex: _selectedIndex,
+                      onTap: (index) {
+                        setState(() {
+                          _selectedIndex = index;
+                        });
+                      },
+                      items:
+                          _navigationOptions
+                              .map(
+                                (option) => BottomNavigationBarItem(
+                                  icon: Icon(option['icon']),
+                                  label: option['title'],
+                                ),
+                              )
+                              .toList(),
+                    ),
+          ),
+          if (_isWindowDragging) _buildDragAndDropOverlay(),
+        ],
       ),
-      bottomNavigationBar:
-          MediaQuery.of(context).size.width >= 600
-              ? const SizedBox.shrink() // Hide on desktop
-              : BottomNavigationBar(
-                currentIndex: _selectedIndex,
-                onTap: (index) {
-                  setState(() {
-                    _selectedIndex = index;
-                  });
-                },
-                items:
-                    _navigationOptions
-                        .map(
-                          (option) => BottomNavigationBarItem(
-                            icon: Icon(option['icon']),
-                            label: option['title'],
-                          ),
-                        )
-                        .toList(),
-              ),
+    );
+  }
+
+  Widget _buildDragAndDropOverlay() {
+    return Positioned.fill(
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.65),
+        child: Container(
+          margin: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: const Color(0xFF4E6AF3).withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: const Color(0xFF4E6AF3),
+              width: 3,
+              style: BorderStyle.solid,
+            ),
+          ),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 90,
+                  height: 90,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF4E6AF3),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF4E6AF3).withValues(alpha: 0.5),
+                        blurRadius: 20,
+                        spreadRadius: 4,
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.file_upload_rounded,
+                    size: 48,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'Drop Files to Send with SpeedShare',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Poppins',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Release to immediately prepare files for transfer',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.8),
+                    fontSize: 14,
+                    fontFamily: 'Poppins',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 

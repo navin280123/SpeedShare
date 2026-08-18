@@ -34,6 +34,18 @@ Source: "build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignorever
 [Icons]
 Name: "{autoprograms}\SpeedShare"; Filename: "{app}\speedsharemob.exe"
 Name: "{autodesktop}\SpeedShare"; Filename: "{app}\speedsharemob.exe"; Tasks: desktopicon
+Name: "{usersendto}\SpeedShare"; Filename: "{app}\speedsharemob.exe"; IconFilename: "{app}\speedsharemob.exe"
+
+[Registry]
+; Context menu for all files
+Root: HKCR; Subkey: "*\shell\SpeedShare"; ValueType: string; ValueName: ""; ValueData: "Send with SpeedShare"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "*\shell\SpeedShare"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\speedsharemob.exe"""
+Root: HKCR; Subkey: "*\shell\SpeedShare\command"; ValueType: string; ValueName: ""; ValueData: """{app}\speedsharemob.exe"" ""%1"""
+
+; Context menu for folders
+Root: HKCR; Subkey: "Directory\shell\SpeedShare"; ValueType: string; ValueName: ""; ValueData: "Send with SpeedShare"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "Directory\shell\SpeedShare"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\speedsharemob.exe"""
+Root: HKCR; Subkey: "Directory\shell\SpeedShare\command"; ValueType: string; ValueName: ""; ValueData: """{app}\speedsharemob.exe"" ""%1"""
 
 [Run]
 Filename: "{app}\speedsharemob.exe"; Description: "{cm:LaunchProgram,SpeedShare}"; Flags: nowait postinstall skipifsilent
