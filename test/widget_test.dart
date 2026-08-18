@@ -18,7 +18,7 @@ void main() {
     });
     
     // Build our app and trigger a frame
-    await tester.pumpWidget(const MyApp(darkMode: false));
+    await tester.pumpWidget(const MyApp(initialDarkMode: false));
     await tester.pump(const Duration(milliseconds: 500)); // Wait for animations to complete
 
     // Verify that the app title appears

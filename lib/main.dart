@@ -6,6 +6,8 @@ import 'package:speedsharemob/PermissionManager.dart';
 import 'package:speedsharemob/NotificationService.dart';
 import 'package:speedsharemob/SharedContentService.dart';
 
+final ValueNotifier<bool> darkModeNotifier = ValueNotifier<bool>(false);
+
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   await NotificationService().initialize();
@@ -14,107 +16,86 @@ void main(List<String> args) async {
   // Load settings
   final prefs = await SharedPreferences.getInstance();
   final bool darkMode = prefs.getBool('darkMode') ?? false;
+  darkModeNotifier.value = darkMode;
 
-  runApp(MyApp(darkMode: darkMode));
+  runApp(const MyApp());
 }
 
-class MyApp extends StatefulWidget {
-  final bool darkMode;
+class MyApp extends StatelessWidget {
+  final bool? initialDarkMode;
 
-  const MyApp({super.key, required this.darkMode});
+  const MyApp({super.key, this.initialDarkMode});
 
-  /// Global key to access MyAppState from anywhere (e.g., SettingsScreen)
-  static final GlobalKey<MyAppState> appKey = GlobalKey<MyAppState>();
-
-  /// Convenience method to update dark mode from anywhere
+  /// Convenience method to update dark mode instantly from anywhere (e.g., SettingsScreen)
   static void updateDarkMode(bool isDark) {
-    appKey.currentState?.setDarkMode(isDark);
-  }
-
-  @override
-  State<MyApp> createState() => MyAppState();
-}
-
-class MyAppState extends State<MyApp> {
-  late bool _darkMode;
-
-  @override
-  void initState() {
-    super.initState();
-    _darkMode = widget.darkMode;
-  }
-
-  /// Called by SettingsScreen to live-update the theme
-  void setDarkMode(bool isDark) {
-    setState(() {
-      _darkMode = isDark;
-    });
+    darkModeNotifier.value = isDark;
   }
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      key: MyApp.appKey,
-      title: 'SpeedShare',
-      theme: ThemeData(
-        brightness: _darkMode ? Brightness.dark : Brightness.light,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF4E6AF3),
-          primary: const Color(0xFF4E6AF3),
-          secondary: const Color(0xFF2AB673),
-          brightness: _darkMode ? Brightness.dark : Brightness.light,
-        ),
-        fontFamily: 'Poppins',
-        useMaterial3: true,
-        cardTheme: CardThemeData(
-          elevation: 2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            elevation: 2,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+    return ValueListenableBuilder<bool>(
+      valueListenable: darkModeNotifier,
+      builder: (context, isDarkMode, _) {
+        return MaterialApp(
+          title: 'SpeedShare',
+          theme: ThemeData(
+            brightness: Brightness.light,
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: const Color(0xFF4E6AF3),
+              primary: const Color(0xFF4E6AF3),
+              secondary: const Color(0xFF2AB673),
+              brightness: Brightness.light,
             ),
-          ),
-        ),
-        outlinedButtonTheme: OutlinedButtonThemeData(
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-        ),
-        scaffoldBackgroundColor:
-            _darkMode ? const Color(0xFF121212) : Colors.grey[50],
-        appBarTheme: AppBarTheme(
-          backgroundColor: _darkMode ? const Color(0xFF1E1E1E) : Colors.white,
-          elevation: 0,
-          centerTitle: false,
-          titleTextStyle: TextStyle(
-            color: _darkMode ? Colors.white : Colors.black87,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
             fontFamily: 'Poppins',
+            useMaterial3: true,
+            cardTheme: CardThemeData(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            elevatedButtonTheme: ElevatedButtonThemeData(
+              style: ElevatedButton.styleFrom(
+                elevation: 2,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            outlinedButtonTheme: OutlinedButtonThemeData(
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            scaffoldBackgroundColor: Colors.grey[50],
+            appBarTheme: const AppBarTheme(
+              backgroundColor: Colors.white,
+              elevation: 0,
+              centerTitle: false,
+              titleTextStyle: TextStyle(
+                color: Colors.black87,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Poppins',
+              ),
+              iconTheme: IconThemeData(
+                color: Colors.black87,
+              ),
+            ),
+            bottomNavigationBarTheme: BottomNavigationBarThemeData(
+              backgroundColor: Colors.white,
+              selectedItemColor: const Color(0xFF4E6AF3),
+              unselectedItemColor: Colors.grey[600],
+              elevation: 8,
+              type: BottomNavigationBarType.fixed,
+              showSelectedLabels: true,
+              showUnselectedLabels: true,
+            ),
           ),
-          iconTheme: IconThemeData(
-            color: _darkMode ? Colors.white : Colors.black87,
-          ),
-        ),
-        bottomNavigationBarTheme: BottomNavigationBarThemeData(
-          backgroundColor: _darkMode ? const Color(0xFF1E1E1E) : Colors.white,
-          selectedItemColor: const Color(0xFF4E6AF3),
-          unselectedItemColor: _darkMode ? Colors.grey[400] : Colors.grey[600],
-          elevation: 8,
-          type: BottomNavigationBarType.fixed,
-          showSelectedLabels: true,
-          showUnselectedLabels: true,
-        ),
-      ),
       darkTheme: ThemeData(
         brightness: Brightness.dark,
         colorScheme: ColorScheme.fromSeed(
@@ -171,9 +152,11 @@ class MyAppState extends State<MyApp> {
           showUnselectedLabels: true,
         ),
       ),
-      themeMode: _darkMode ? ThemeMode.dark : ThemeMode.light,
-      home: const MainScreen(),
-      debugShowCheckedModeBanner: false,
+          themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
+          home: const MainScreen(),
+          debugShowCheckedModeBanner: false,
+        );
+      },
     );
   }
 }
