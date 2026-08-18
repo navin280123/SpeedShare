@@ -38,6 +38,7 @@ class ReceiveScreenState extends State<ReceiveScreen>
   String downloadDirectoryPath = '';
   bool isLoadingIp = true;
   bool isReceivingAnimation = false;
+  bool _isFilesExpanded = false; // Default collapsed
 
   // Active in-progress download tracking for clean app termination
   IOSink? _activeSink;
@@ -382,17 +383,18 @@ class ReceiveScreenState extends State<ReceiveScreen>
       serverSocket!.listen((client) {
         // Protocol state variables
         bool receivingMetadata = true;
-        bool receivingHeaderSize = true;
         int metadataSize = 0;
-        List<int> headerBuffer = [];
+        List<int> incomingBuffer = [];
         int expectedFileSize = 0;
         String expectedFileName = '';
         int writtenFileBytes = 0;
+        DateTime lastProgressTime = DateTime.now();
 
         client.listen((data) async {
           // Check for TCP discovery probe
-          final probeText = String.fromCharCodes(data);
-          if (probeText.startsWith('SPEEDSHARE_PING')) {
+          if (data.length >= 15 &&
+              String.fromCharCodes(data.sublist(0, 15))
+                  .startsWith('SPEEDSHARE_PING')) {
             client.write('DEVICE_NAME:$computerName');
             await client.flush();
             client.destroy();
@@ -400,32 +402,23 @@ class ReceiveScreenState extends State<ReceiveScreen>
           }
 
           if (receivingMetadata) {
-            if (receivingHeaderSize) {
-              // First 4 bytes indicate metadata size
-              if (data.length >= 4) {
-                ByteData byteData = ByteData.sublistView(
-                  Uint8List.fromList(data.sublist(0, 4)),
-                );
-                metadataSize = byteData.getInt32(0);
-                if (metadataSize <= 0 || metadataSize > 65536) {
-                  debugPrint('Invalid metadata size: $metadataSize');
-                  client.destroy();
-                  return;
-                }
-                if (data.length > 4) {
-                  headerBuffer.addAll(data.sublist(4));
-                }
-                receivingHeaderSize = false;
-              } else {
-                headerBuffer.addAll(data);
+            incomingBuffer.addAll(data);
+
+            if (metadataSize == 0 && incomingBuffer.length >= 4) {
+              final byteData = ByteData.sublistView(
+                Uint8List.fromList(incomingBuffer.sublist(0, 4)),
+              );
+              metadataSize = byteData.getInt32(0);
+              if (metadataSize <= 0 || metadataSize > 65536) {
+                debugPrint('Invalid metadata size: $metadataSize');
+                client.destroy();
+                return;
               }
-            } else {
-              headerBuffer.addAll(data);
             }
 
-            if (!receivingHeaderSize && headerBuffer.length >= metadataSize) {
+            if (metadataSize > 0 && incomingBuffer.length >= 4 + metadataSize) {
               final metadataJson = utf8.decode(
-                headerBuffer.sublist(0, metadataSize),
+                incomingBuffer.sublist(4, 4 + metadataSize),
               );
               final metadata =
                   json.decode(metadataJson) as Map<String, dynamic>;
@@ -434,6 +427,7 @@ class ReceiveScreenState extends State<ReceiveScreen>
               );
               expectedFileSize = metadata['fileSize'];
               writtenFileBytes = 0;
+              lastProgressTime = DateTime.now();
               _activeExpectedFileSize = expectedFileSize;
               _activeWrittenBytes = 0;
 
@@ -442,6 +436,7 @@ class ReceiveScreenState extends State<ReceiveScreen>
                   receivedFileName = expectedFileName;
                   fileSize = expectedFileSize;
                   bytesReceived = 0;
+                  progress = 0.0;
                 });
               }
 
@@ -475,18 +470,21 @@ class ReceiveScreenState extends State<ReceiveScreen>
               receivingMetadata = false;
               client.write('READY_FOR_FILE_DATA');
 
-              if (headerBuffer.length > metadataSize) {
-                final fileData = headerBuffer.sublist(metadataSize);
+              if (incomingBuffer.length > 4 + metadataSize) {
+                final fileData = incomingBuffer.sublist(4 + metadataSize);
                 _activeSink?.add(fileData);
                 writtenFileBytes += fileData.length;
                 _activeWrittenBytes = writtenFileBytes;
                 if (mounted) {
                   setState(() {
                     bytesReceived = writtenFileBytes;
-                    progress = writtenFileBytes / expectedFileSize;
+                    progress = expectedFileSize > 0
+                        ? (writtenFileBytes / expectedFileSize).clamp(0.0, 0.999)
+                        : 0.0;
                   });
                 }
               }
+              incomingBuffer.clear();
             }
           } else {
             // This is file data
@@ -494,11 +492,18 @@ class ReceiveScreenState extends State<ReceiveScreen>
             writtenFileBytes += data.length;
             _activeWrittenBytes = writtenFileBytes;
 
-            if (mounted) {
-              setState(() {
-                bytesReceived = writtenFileBytes;
-                progress = expectedFileSize > 0 ? writtenFileBytes / expectedFileSize : 0.0;
-              });
+            final now = DateTime.now();
+            if (writtenFileBytes < expectedFileSize) {
+              if (now.difference(lastProgressTime).inMilliseconds >= 30 &&
+                  mounted) {
+                setState(() {
+                  bytesReceived = writtenFileBytes;
+                  progress = expectedFileSize > 0
+                      ? (writtenFileBytes / expectedFileSize).clamp(0.0, 0.999)
+                      : 0.0;
+                });
+                lastProgressTime = now;
+              }
             }
 
             // File transfer complete
@@ -569,8 +574,8 @@ class ReceiveScreenState extends State<ReceiveScreen>
               client.write('TRANSFER_COMPLETE');
               receivedFile = null;
               receivingMetadata = true;
-              receivingHeaderSize = true;
-              headerBuffer = [];
+              metadataSize = 0;
+              incomingBuffer.clear();
               _activeTmpFile = null;
               _finalDestinationPath = null;
               _activeWrittenBytes = 0;
@@ -940,15 +945,18 @@ class ReceiveScreenState extends State<ReceiveScreen>
                   // Status section with IP and controls
                   _buildStatusSection(),
 
-              // Current transfer if any
+              // Current transfer progress card
               if (receivedFileName.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 16.0),
                   child: _buildCurrentTransferCard(),
                 ),
 
-              // Files section
-              Expanded(child: _buildFilesSection()),
+              // Files section (collapsible)
+              if (_isFilesExpanded)
+                Expanded(child: _buildFilesSection())
+              else
+                _buildFilesSection(),
             ],
           ),
         ),
@@ -1210,7 +1218,7 @@ class ReceiveScreenState extends State<ReceiveScreen>
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(
-                value: progress,
+                value: progress > 0 ? progress.clamp(0.01, 1.0) : null,
                 backgroundColor:
                     Theme.of(context).brightness == Brightness.dark
                         ? Colors.grey[700]
@@ -1268,40 +1276,92 @@ class ReceiveScreenState extends State<ReceiveScreen>
   }
 
   Widget _buildFilesSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 4.0),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Received Files',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-              if (receivedFiles.isNotEmpty)
-                TextButton.icon(
-                  onPressed: _openDownloadsFolder,
-                  icon: const Icon(Icons.folder_open_rounded, size: 16),
-                  label: const Text(
-                    'Open Folder',
-                    style: TextStyle(fontSize: 13),
-                  ),
-                  style: TextButton.styleFrom(
-                    foregroundColor: const Color(0xFF4E6AF3),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
+    return Card(
+      margin: const EdgeInsets.only(top: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: _isFilesExpanded ? MainAxisSize.max : MainAxisSize.min,
+        children: [
+          InkWell(
+            onTap: () {
+              setState(() {
+                _isFilesExpanded = !_isFilesExpanded;
+              });
+            },
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF4E6AF3).withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.history_rounded,
+                      size: 20,
+                      color: Color(0xFF4E6AF3),
                     ),
                   ),
-                ),
-            ],
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Received Files',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? Colors.grey[800]
+                          : Colors.grey[200],
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${receivedFiles.length}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? Colors.grey[300]
+                            : Colors.grey[700],
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  if (receivedFiles.isNotEmpty)
+                    IconButton(
+                      icon: const Icon(Icons.folder_open_rounded, size: 20),
+                      tooltip: 'Open Folder',
+                      onPressed: _openDownloadsFolder,
+                      color: const Color(0xFF4E6AF3),
+                    ),
+                  Icon(
+                    _isFilesExpanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    color: Colors.grey[600],
+                  ),
+                ],
+              ),
+            ),
           ),
-        ),
-
-        Expanded(child: _buildFilesList()),
-      ],
+          if (_isFilesExpanded) ...[
+            const Divider(height: 1),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: _buildFilesList(),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
