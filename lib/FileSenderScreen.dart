@@ -5,7 +5,6 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:mime/mime.dart';
-import 'package:lottie/lottie.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speedsharemob/PermissionManager.dart';
 import 'package:speedsharemob/DeviceNameManager.dart';
@@ -1344,26 +1343,40 @@ class FileSenderScreenState extends State<FileSenderScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Lottie.asset(
-              'assets/upload.json',
-              width: 180,
-              height: 180,
-              fit: BoxFit.contain,
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF4E6AF3).withValues(alpha: 0.1),
-                    shape: BoxShape.circle,
+            Container(
+              width: 110,
+              height: 110,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF4E6AF3).withValues(alpha: 0.15),
+                    const Color(0xFF2AB673).withValues(alpha: 0.08),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: const Color(0xFF4E6AF3).withValues(alpha: 0.3),
+                  width: 2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF4E6AF3).withValues(alpha: 0.12),
+                    blurRadius: 24,
+                    spreadRadius: 2,
                   ),
-                  child: Icon(
-                    Icons.cloud_upload_rounded,
-                    size: 40,
-                    color: Colors.grey[400],
-                  ),
-                );
-              },
+                ],
+              ),
+              child: Center(
+                child: Icon(
+                  _isDraggingOver
+                      ? Icons.file_download_done_rounded
+                      : Icons.cloud_upload_rounded,
+                  size: 54,
+                  color: const Color(0xFF4E6AF3),
+                ),
+              ),
             ),
             const SizedBox(height: 24),
             Text(
@@ -1879,16 +1892,23 @@ class FileSenderScreenState extends State<FileSenderScreen>
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Lottie.asset(
-            'assets/searchss.json',
-            height: 120,
-            errorBuilder: (context, error, stackTrace) {
-              return Icon(
-                Icons.search_off_rounded,
-                size: 60,
-                color: Colors.grey[300],
-              );
-            },
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              color: (Theme.of(context).brightness == Brightness.dark
+                      ? Colors.white
+                      : Colors.black)
+                  .withValues(alpha: 0.05),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.devices_rounded,
+              size: 40,
+              color: Theme.of(context).brightness == Brightness.dark
+                  ? Colors.grey[400]
+                  : Colors.grey[600],
+            ),
           ),
           const SizedBox(height: 16),
           Text(
