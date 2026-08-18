@@ -746,33 +746,45 @@ class ReceiveScreenState extends State<ReceiveScreen>
 
   void _openDownloadsFolder() async {
     try {
+      final dir = Directory(downloadDirectoryPath);
+      if (!dir.existsSync()) {
+        await dir.create(recursive: true);
+      }
+
       if (Platform.isWindows) {
-        Process.run('explorer', [downloadDirectoryPath]);
+        await Process.run('explorer.exe', [downloadDirectoryPath]);
       } else if (Platform.isMacOS) {
-        Process.run('open', [downloadDirectoryPath]);
+        await Process.run('open', [downloadDirectoryPath]);
       } else if (Platform.isLinux) {
-        Process.run('xdg-open', [downloadDirectoryPath]);
+        await Process.run('xdg-open', [downloadDirectoryPath]);
       } else {
-        await Clipboard.setData(ClipboardData(text: downloadDirectoryPath));
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.info_rounded, color: Colors.white),
-                SizedBox(width: 10),
-                Text('Path copied to clipboard'),
-              ],
+        // Android & iOS
+        final result = await OpenFile.open(downloadDirectoryPath);
+        if (result.type != ResultType.done) {
+          // If the system couldn't open directly with a registered folder app, copy to clipboard
+          await Clipboard.setData(ClipboardData(text: downloadDirectoryPath));
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).clearSnackBars();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.folder_rounded, color: Colors.white),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text('Folder path copied: $downloadDirectoryPath'),
+                  ),
+                ],
+              ),
+              backgroundColor: const Color(0xFF4E6AF3),
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 3),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
-            backgroundColor: const Color(0xFF4E6AF3),
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 2),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-        );
+          );
+        }
       }
     } catch (e) {
       if (!mounted) return;
@@ -783,7 +795,7 @@ class ReceiveScreenState extends State<ReceiveScreen>
             children: [
               const Icon(Icons.error_rounded, color: Colors.white),
               const SizedBox(width: 10),
-              Text('Could not open folder: $e'),
+              Expanded(child: Text('Could not open folder: $e')),
             ],
           ),
           backgroundColor: Colors.red,
