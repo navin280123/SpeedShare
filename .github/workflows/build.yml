@@ -128,7 +128,8 @@ jobs:
             ninja-build \
             pkg-config \
             libgtk-3-dev \
-            liblzma-dev
+            liblzma-dev \
+            dpkg-dev
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -177,7 +178,13 @@ jobs:
       - name: Create macOS DMG
         run: |
           mkdir -p installers
-          hdiutil create -volname "Speed Share" -srcfolder "build/macos/Build/Products/Release/Speed Share.app" -ov -format UDZO "installers/Speed Share.dmg"
+          APP_PATH=$(find build/macos/Build/Products/Release -maxdepth 1 -name "*.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: macOS .app bundle not found!"
+            exit 1
+          fi
+          echo "Found app at: $APP_PATH"
+          hdiutil create -volname "Speed Share" -srcfolder "$APP_PATH" -ov -format UDZO "installers/Speed Share.dmg"
 
       - name: Upload macOS Installer
         uses: actions/upload-artifact@v4
@@ -210,11 +217,11 @@ jobs:
         run: |
           flutter build ios --release --no-codesign
           mkdir -p installers
-          cd build/ios/iphoneos
+          rm -rf Payload
           mkdir -p Payload
-          cp -r Runner.app Payload/
-          zip -r SpeedShare_iOS.ipa Payload
-          cp SpeedShare_iOS.ipa ../../../installers/
+          cp -r build/ios/iphoneos/Runner.app Payload/
+          zip -r -q "installers/SpeedShare_iOS.ipa" Payload
+          rm -rf Payload
 
       - name: Upload iOS Installer
         uses: actions/upload-artifact@v4
@@ -228,7 +235,7 @@ jobs:
   commit-installers:
     name: Push Installers to Repository
     needs: [build-android, build-ios, build-windows, build-linux, build-macos]
-    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
+    if: always() && !cancelled() && contains(needs.*.result, 'success')
     runs-on: ubuntu-latest
 
     steps:
@@ -252,6 +259,7 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main || true
           git add installers/
           if git diff --staged --quiet; then
             echo "No changes in installers directory."

@@ -13,7 +13,10 @@ flutter build linux --release
 
 # Packaging Variables
 APP_NAME="speedshare"
-VERSION="1.0.0"
+VERSION=$(grep '^version: ' pubspec.yaml | sed 's/version: //' | cut -d '+' -f 1 | tr -d '[:space:]')
+if [ -z "$VERSION" ]; then
+  VERSION="1.0.8"
+fi
 DEB_DIR="installers"
 BUILD_DIR="build/linux/x64/release/bundle"
 TEMP_DIR="${DEB_DIR}/deb_temp"
