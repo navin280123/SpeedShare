@@ -73,7 +73,7 @@ msix_config:
   publisher_display_name: Navin Kumar Verma
   publisher: CN=ACBB341E-4035-40AE-9F2A-6A805AB8B510
   identity_name: NavinKumarVerma.SpeedShare
-  msix_version: 1.0.8.0
+  msix_version: 1.0.9.0
   logo_path: assets/icon.png
   capabilities: internetClient, internetClientServer, privateNetworkClientServer
   install_certificate: false
