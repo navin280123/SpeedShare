@@ -120,10 +120,15 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Linux build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo sed -i 's/azure.archive.ubuntu.com/archive.ubuntu.com/g' /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
           sudo apt-get update -y
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          sudo apt-get install -y --no-install-recommends \
+            clang \
+            cmake \
+            ninja-build \
+            pkg-config \
             libgtk-3-dev \
             liblzma-dev
 
