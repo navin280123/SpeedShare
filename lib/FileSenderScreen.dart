@@ -272,10 +272,24 @@ class FileSenderScreenState extends State<FileSenderScreen>
           .toSet();
       localIps.addAll(['127.0.0.1', '::1']);
 
-      // Collect non-loopback active IPv4 interfaces
+      // Collect non-loopback, non-cellular active IPv4 interfaces
       final candidateInterfaces = interfaces.where((i) {
         final name = i.name.toLowerCase();
-        return !name.contains('lo') && !name.contains('virtual') && !name.contains('loopback');
+        final isCellular = name.startsWith('rmnet') ||
+            name.startsWith('ccmni') ||
+            name.startsWith('pdp') ||
+            name.startsWith('dummy') ||
+            name.startsWith('seth') ||
+            name.startsWith('wwan') ||
+            name.startsWith('cellular') ||
+            name.startsWith('radio') ||
+            name.startsWith('ipa') ||
+            name.startsWith('v4-rmnet') ||
+            name.startsWith('usb_rmnet');
+        return !name.contains('lo') &&
+            !name.contains('virtual') &&
+            !name.contains('loopback') &&
+            !isCellular;
       }).toList();
 
       final interfacesToScan = candidateInterfaces.isNotEmpty ? candidateInterfaces : interfaces;
@@ -1198,7 +1212,10 @@ class FileSenderScreenState extends State<FileSenderScreen>
             constraints: const BoxConstraints(maxWidth: 800),
             child: Column(
               children: [
-            NetworkStatusWidget(onRetry: startScanning),
+            NetworkStatusWidget(
+              mode: NetworkWidgetMode.sender,
+              onRetry: startScanning,
+            ),
             // Step indicator
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16),

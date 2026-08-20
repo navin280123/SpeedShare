@@ -197,10 +197,19 @@ class ReceiveScreenState extends State<ReceiveScreen>
     });
     try {
       final interfaces = await NetworkInterface.list();
-      // First pass: find physical Wi-Fi / Ethernet interface
+      // First pass: find physical Wi-Fi / Ethernet / Hotspot interfaces
       for (var interface in interfaces) {
         final name = interface.name.toLowerCase();
-        if (name.contains('wlan') || name.contains('wi-fi') || name.contains('eth') || name.contains('en')) {
+        if (name.contains('wlan') ||
+            name.contains('wi-fi') ||
+            name.contains('eth') ||
+            name.contains('en') ||
+            name.contains('ap') ||
+            name.contains('softap') ||
+            name.contains('bridge') ||
+            name.contains('rndis') ||
+            name.contains('swlan') ||
+            name.contains('local area connection')) {
           for (var addr in interface.addresses) {
             if (addr.type == InternetAddressType.IPv4 &&
                 !addr.address.startsWith('127.') &&
@@ -218,9 +227,21 @@ class ReceiveScreenState extends State<ReceiveScreen>
         }
       }
 
-      // Second pass: any valid non-loopback IPv4
+      // Second pass: any valid non-loopback, non-cellular IPv4
       for (var interface in interfaces) {
-        if (interface.name.toLowerCase().contains('lo')) continue;
+        final name = interface.name.toLowerCase();
+        final isCellular = name.startsWith('rmnet') ||
+            name.startsWith('ccmni') ||
+            name.startsWith('pdp') ||
+            name.startsWith('dummy') ||
+            name.startsWith('seth') ||
+            name.startsWith('wwan') ||
+            name.startsWith('cellular') ||
+            name.startsWith('radio') ||
+            name.startsWith('ipa') ||
+            name.startsWith('v4-rmnet') ||
+            name.startsWith('usb_rmnet');
+        if (name.contains('lo') || isCellular) continue;
         for (var addr in interface.addresses) {
           if (addr.type == InternetAddressType.IPv4 &&
               !addr.address.startsWith('127.') &&
@@ -941,7 +962,10 @@ class ReceiveScreenState extends State<ReceiveScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  NetworkStatusWidget(onRetry: _getIpAddress),
+                  NetworkStatusWidget(
+                    mode: NetworkWidgetMode.receiver,
+                    onRetry: _getIpAddress,
+                  ),
                   // Status section with IP and controls
                   _buildStatusSection(),
 

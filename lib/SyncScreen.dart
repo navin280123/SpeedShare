@@ -1065,7 +1065,9 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 children: [
-              NetworkStatusWidget(),
+              NetworkStatusWidget(
+                mode: NetworkWidgetMode.sync,
+              ),
               // Share Storage Card
               _buildShareStorageCard(),
               

@@ -1,20 +1,70 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:speedsharemob/NetworkSettingsHelper.dart';
+
+enum NetworkWidgetMode {
+  sender,
+  receiver,
+  sync,
+  general,
+}
 
 class NetworkStatusWidget extends StatefulWidget {
+  final NetworkWidgetMode mode;
   final VoidCallback? onRetry;
 
-  const NetworkStatusWidget({super.key, this.onRetry});
+  const NetworkStatusWidget({
+    super.key,
+    this.mode = NetworkWidgetMode.general,
+    this.onRetry,
+  });
+
+  /// Helper to check if an interface is a pure cellular/mobile data interface
+  static bool _isCellularInterface(String name) {
+    final lower = name.toLowerCase();
+    return lower.startsWith('rmnet') ||
+        lower.startsWith('ccmni') ||
+        lower.startsWith('pdp') ||
+        lower.startsWith('dummy') ||
+        lower.startsWith('seth') ||
+        lower.startsWith('wwan') ||
+        lower.startsWith('cellular') ||
+        lower.startsWith('radio') ||
+        lower.startsWith('ipa') ||
+        lower.startsWith('v4-rmnet') ||
+        lower.startsWith('usb_rmnet');
+  }
 
   /// Static helper to check if an active local network IPv4 interface exists
+  /// (Wi-Fi router, Mobile Hotspot host, Ethernet, or local LAN).
+  /// Excludes mobile data (cellular) connections.
   static Future<bool> hasLocalNetwork() async {
     try {
+      // 1. Check Connectivity status
+      final connectivityResults = await Connectivity().checkConnectivity();
+      if (connectivityResults.contains(ConnectivityResult.wifi) ||
+          connectivityResults.contains(ConnectivityResult.ethernet)) {
+        return true;
+      }
+
+      // 2. Check active network interfaces (covers Mobile Hotspot host mode, SoftAP, Direct LAN)
       final interfaces = await NetworkInterface.list();
       for (var interface in interfaces) {
+        final ifaceName = interface.name.toLowerCase();
+
+        // Skip loopback and known cellular/mobile data interfaces
+        if (ifaceName.contains('lo') ||
+            ifaceName.contains('loopback') ||
+            _isCellularInterface(ifaceName)) {
+          continue;
+        }
+
         for (var addr in interface.addresses) {
           if (addr.type == InternetAddressType.IPv4 &&
               !addr.address.startsWith('127.') &&
+              !addr.address.startsWith('169.254.') &&
               !addr.address.startsWith('0.')) {
             return true;
           }
@@ -31,18 +81,23 @@ class NetworkStatusWidget extends StatefulWidget {
 class _NetworkStatusWidgetState extends State<NetworkStatusWidget> {
   bool _isConnected = true;
   Timer? _checkTimer;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
 
   @override
   void initState() {
     super.initState();
     _checkNetwork();
-    _checkTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((_) {
+      _checkNetwork();
+    });
+    _checkTimer = Timer.periodic(const Duration(seconds: 4), (_) {
       _checkNetwork();
     });
   }
 
   @override
   void dispose() {
+    _connectivitySubscription?.cancel();
     _checkTimer?.cancel();
     super.dispose();
   }
@@ -77,22 +132,22 @@ class _NetworkStatusWidgetState extends State<NetworkStatusWidget> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'No Wi-Fi router available? You can still transfer files at maximum speeds without consuming any cellular data!',
+                  'No Wi-Fi router available? You can still transfer files at maximum speeds without consuming any mobile data!',
                   style: TextStyle(fontSize: 13, color: Colors.grey),
                 ),
                 const SizedBox(height: 16),
                 _buildGuideStep(
                   step: '1',
-                  title: 'Turn On Mobile Hotspot',
+                  title: 'Turn On Mobile Hotspot (Sender)',
                   description:
-                      'Enable Personal / Mobile Hotspot on Device A settings.',
+                      'Sender turns on Personal / Mobile Hotspot in device settings.',
                 ),
                 const SizedBox(height: 12),
                 _buildGuideStep(
                   step: '2',
-                  title: 'Connect Device B',
+                  title: 'Connect Wi-Fi (Receiver)',
                   description:
-                      'Connect Device B to Device A\'s Wi-Fi Hotspot.',
+                      'Receiver connects to Sender\'s Wi-Fi Hotspot.',
                 ),
                 const SizedBox(height: 12),
                 _buildGuideStep(
@@ -190,6 +245,60 @@ class _NetworkStatusWidgetState extends State<NetworkStatusWidget> {
     );
   }
 
+  String _getDescriptionText() {
+    switch (widget.mode) {
+      case NetworkWidgetMode.sender:
+        return 'Turn on Mobile Hotspot or connect to the same Wi-Fi network as the receiver.';
+      case NetworkWidgetMode.receiver:
+        return 'Connect to the sender\'s Mobile Hotspot or the same Wi-Fi network to receive files.';
+      case NetworkWidgetMode.sync:
+      case NetworkWidgetMode.general:
+        return 'Connect to a Wi-Fi network or turn on Mobile Hotspot to share and sync files offline.';
+    }
+  }
+
+  Widget _buildActionButton() {
+    switch (widget.mode) {
+      case NetworkWidgetMode.sender:
+        return ElevatedButton.icon(
+          onPressed: () => NetworkSettingsHelper.openHotspotSettings(context: context),
+          icon: const Icon(Icons.wifi_tethering_rounded, size: 16),
+          label: const Text('Turn On Hotspot'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF4E6AF3),
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            visualDensity: VisualDensity.compact,
+          ),
+        );
+      case NetworkWidgetMode.receiver:
+        return ElevatedButton.icon(
+          onPressed: () => NetworkSettingsHelper.openWifiSettings(context: context),
+          icon: const Icon(Icons.wifi_rounded, size: 16),
+          label: const Text('Connect to Wi-Fi'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF4E6AF3),
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            visualDensity: VisualDensity.compact,
+          ),
+        );
+      case NetworkWidgetMode.sync:
+      case NetworkWidgetMode.general:
+        return ElevatedButton.icon(
+          onPressed: () => NetworkSettingsHelper.openWifiSettings(context: context),
+          icon: const Icon(Icons.settings_rounded, size: 16),
+          label: const Text('Network Settings'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.amber.shade800,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            visualDensity: VisualDensity.compact,
+          ),
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isConnected) {
@@ -225,12 +334,15 @@ class _NetworkStatusWidgetState extends State<NetworkStatusWidget> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Connect to a Wi-Fi network or turn on Mobile Hotspot to share files offline.',
+            _getDescriptionText(),
             style: TextStyle(fontSize: 12, color: Colors.amber.shade900),
           ),
           const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.end,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               OutlinedButton.icon(
                 onPressed: () => _showHotspotGuideDialog(context),
@@ -244,24 +356,19 @@ class _NetworkStatusWidgetState extends State<NetworkStatusWidget> {
                   visualDensity: VisualDensity.compact,
                 ),
               ),
-              if (widget.onRetry != null) ...[
-                const SizedBox(width: 8),
-                ElevatedButton.icon(
+              _buildActionButton(),
+              if (widget.onRetry != null)
+                IconButton.filledTonal(
                   onPressed: () {
                     _checkNetwork();
                     widget.onRetry!();
                   },
-                  icon: const Icon(Icons.refresh_rounded, size: 16),
-                  label: const Text('Retry'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.amber.shade800,
-                    foregroundColor: Colors.white,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  tooltip: 'Retry Connection',
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  style: IconButton.styleFrom(
                     visualDensity: VisualDensity.compact,
                   ),
                 ),
-              ],
             ],
           ),
         ],
