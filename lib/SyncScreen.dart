@@ -11,12 +11,31 @@ import 'package:lottie/lottie.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:mime/mime.dart';
+import 'package:open_file/open_file.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:speedsharemob/PermissionManager.dart';
 import 'package:speedsharemob/DeviceNameManager.dart';
 import 'package:speedsharemob/NetworkStatusWidget.dart';
 import 'package:speedsharemob/SpeedShareAppBar.dart';
 import 'package:speedsharemob/NotificationService.dart';
+
+enum SyncTabMode { connect, sync }
+
+class ConnectedClient {
+  final String ip;
+  final String name;
+  DateTime lastActive;
+  String lastAction;
+  int requestCount;
+
+  ConnectedClient({
+    required this.ip,
+    required this.name,
+    required this.lastActive,
+    required this.lastAction,
+    this.requestCount = 1,
+  });
+}
 
 class SyncScreen extends StatefulWidget {
   const SyncScreen({super.key});
@@ -26,12 +45,17 @@ class SyncScreen extends StatefulWidget {
 }
 
 class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
+  // Mode selection: Connect vs Sync
+  SyncTabMode _activeTab = SyncTabMode.connect;
+
   // Storage Server
   HttpServer? _storageServer;
   RawDatagramSocket? _syncDiscoverySocket;
   String? _accessCode;
   bool _isStorageSharing = false;
   List<String> _sharedPaths = [];
+  DateTimeRange? _hostCameraDateRange;
+  final Map<String, ConnectedClient> _connectedClients = {};
   
   // Storage Browser
   final List<SyncDevice> _availableDevices = [];
@@ -44,6 +68,7 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
   bool _isBrowsingFiles = false;
   bool _isLoadingRemoteFiles = false;
   String _currentRemotePath = '/';
+  DateTimeRange? _selectedDateRange;
   final List<DownloadTask> _downloadQueue = [];
   final Map<String, String> _devicePins = {};
   
@@ -226,12 +251,40 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
     } catch (e) {
       debugPrint('Error loading sync settings: $e');
     }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final startDateStr = prefs.getString('sync_camera_start_date');
+      final endDateStr = prefs.getString('sync_camera_end_date');
+      if (startDateStr != null && endDateStr != null) {
+        final start = DateTime.tryParse(startDateStr);
+        final end = DateTime.tryParse(endDateStr);
+        if (start != null && end != null) {
+          setState(() {
+            _hostCameraDateRange = DateTimeRange(start: start, end: end);
+          });
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _saveSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList('sync_shared_paths', _sharedPaths);
+      if (_hostCameraDateRange != null) {
+        await prefs.setString(
+          'sync_camera_start_date',
+          _hostCameraDateRange!.start.toIso8601String(),
+        );
+        await prefs.setString(
+          'sync_camera_end_date',
+          _hostCameraDateRange!.end.toIso8601String(),
+        );
+      } else {
+        await prefs.remove('sync_camera_start_date');
+        await prefs.remove('sync_camera_end_date');
+      }
     } catch (e) {
       debugPrint('Error saving sync settings: $e');
     }
@@ -572,9 +625,30 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
     }
   }
 
+  void _recordClientActivity(String clientIp, String action) {
+    if (mounted) {
+      setState(() {
+        if (_connectedClients.containsKey(clientIp)) {
+          final client = _connectedClients[clientIp]!;
+          client.lastActive = DateTime.now();
+          client.lastAction = action;
+          client.requestCount++;
+        } else {
+          _connectedClients[clientIp] = ConnectedClient(
+            ip: clientIp,
+            name: 'Device ($clientIp)',
+            lastActive: DateTime.now(),
+            lastAction: action,
+          );
+        }
+      });
+    }
+  }
+
   void _handleStorageRequest(HttpRequest request) async {
     try {
       final uri = request.uri;
+      final clientIp = request.connectionInfo?.remoteAddress.address ?? 'unknown';
 
       // Handle info/ping without access code requirement
       if (uri.path == '/api/info' || uri.path == '/api/ping') {
@@ -593,9 +667,10 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
         return;
       }
 
-      final accessCode = uri.queryParameters['code'];
+      final accessCode = uri.queryParameters['code']?.trim().toUpperCase();
+      final expectedCode = _accessCode?.trim().toUpperCase();
       
-      if (accessCode != _accessCode) {
+      if (accessCode == null || accessCode != expectedCode) {
         request.response.statusCode = 403;
         request.response.write('Invalid access code');
         await request.response.close();
@@ -603,9 +678,9 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
       }
 
       if (uri.path.startsWith('/api/files')) {
-        await _handleFileListRequest(request);
+        await _handleFileListRequest(request, clientIp);
       } else if (uri.path.startsWith('/api/download')) {
-        await _handleFileDownloadRequest(request);
+        await _handleFileDownloadRequest(request, clientIp);
       } else {
         request.response.statusCode = 404;
         await request.response.close();
@@ -617,30 +692,79 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
     }
   }
 
-  Future<void> _handleFileListRequest(HttpRequest request) async {
+  Future<void> _handleFileListRequest(HttpRequest request, String clientIp) async {
     final requestedPath = request.uri.queryParameters['path'] ?? '/';
     final files = <Map<String, dynamic>>[];
     
+    _recordClientActivity(
+      clientIp,
+      'Browsing ${requestedPath == "/" ? "Shared Folders" : p.basename(requestedPath)}',
+    );
+
+    final startDateStr = request.uri.queryParameters['startDate'];
+    final endDateStr = request.uri.queryParameters['endDate'];
+    DateTime? startDate = startDateStr != null ? DateTime.tryParse(startDateStr) : null;
+    DateTime? endDate = endDateStr != null ? DateTime.tryParse(endDateStr) : null;
+
+    if (startDate != null) {
+      startDate = DateTime(startDate.year, startDate.month, startDate.day, 0, 0, 0);
+    }
+    if (endDate != null) {
+      endDate = DateTime(endDate.year, endDate.month, endDate.day, 23, 59, 59);
+    }
+
+    final isCameraOrPhotos = requestedPath.toLowerCase().contains('camera') ||
+        requestedPath.toLowerCase().contains('dcim') ||
+        requestedPath.toLowerCase().contains('picture');
+
+    DateTime? effectiveStart = startDate;
+    DateTime? effectiveEnd = endDate;
+
+    // Enforce host's date range restriction for Camera/photos to protect host privacy
+    if (isCameraOrPhotos && _hostCameraDateRange != null) {
+      final hostStart = DateTime(
+        _hostCameraDateRange!.start.year,
+        _hostCameraDateRange!.start.month,
+        _hostCameraDateRange!.start.day,
+        0,
+        0,
+        0,
+      );
+      final hostEnd = DateTime(
+        _hostCameraDateRange!.end.year,
+        _hostCameraDateRange!.end.month,
+        _hostCameraDateRange!.end.day,
+        23,
+        59,
+        59,
+      );
+      effectiveStart = effectiveStart != null
+          ? (effectiveStart.isAfter(hostStart) ? effectiveStart : hostStart)
+          : hostStart;
+      effectiveEnd = effectiveEnd != null
+          ? (effectiveEnd.isBefore(hostEnd) ? effectiveEnd : hostEnd)
+          : hostEnd;
+    }
+    
     try {
       if (requestedPath == '/') {
+        // Return shared root folders as directories so the user can choose which folder to enter
         for (final sharedPath in _sharedPaths) {
           final directory = Directory(sharedPath);
           if (await directory.exists()) {
-            await for (final entity in directory.list()) {
-              try {
-                final stat = await entity.stat();
-                files.add({
-                  'name': p.basename(entity.path),
-                  'path': entity.path,
-                  'isDirectory': entity is Directory,
-                  'size': entity is File ? stat.size : 0,
-                  'modified': stat.modified.toIso8601String(),
-                  'type': entity is File ? lookupMimeType(entity.path) ?? 'application/octet-stream' : 'directory',
-                });
-              } catch (e) {
-                // Skip files that can't be accessed
-              }
-            }
+            try {
+              final stat = await directory.stat();
+              var folderName = p.basename(sharedPath);
+              if (folderName.isEmpty) folderName = sharedPath;
+              files.add({
+                'name': folderName,
+                'path': sharedPath,
+                'isDirectory': true,
+                'size': 0,
+                'modified': stat.modified.toIso8601String(),
+                'type': 'directory',
+              });
+            } catch (_) {}
           }
         }
       } else {
@@ -650,13 +774,19 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
             await for (final entity in directory.list()) {
               try {
                 final stat = await entity.stat();
+                if (entity is File && (effectiveStart != null || effectiveEnd != null)) {
+                  if (effectiveStart != null && stat.modified.isBefore(effectiveStart)) continue;
+                  if (effectiveEnd != null && stat.modified.isAfter(effectiveEnd)) continue;
+                }
                 files.add({
                   'name': p.basename(entity.path),
                   'path': entity.path,
                   'isDirectory': entity is Directory,
                   'size': entity is File ? stat.size : 0,
                   'modified': stat.modified.toIso8601String(),
-                  'type': entity is File ? lookupMimeType(entity.path) ?? 'application/octet-stream' : 'directory',
+                  'type': entity is File
+                      ? lookupMimeType(entity.path) ?? 'application/octet-stream'
+                      : 'directory',
                 });
               } catch (e) {
                 // Skip files that can't be accessed
@@ -687,8 +817,9 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
     await request.response.close();
   }
 
-  Future<void> _handleFileDownloadRequest(HttpRequest request) async {
+  Future<void> _handleFileDownloadRequest(HttpRequest request, [String clientIp = 'unknown']) async {
     final filePath = request.uri.queryParameters['file'];
+    final isPreview = request.uri.queryParameters['preview'] == 'true';
     
     if (filePath == null || !_isPathAllowed(filePath)) {
       request.response.statusCode = 403;
@@ -696,15 +827,58 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
       await request.response.close();
       return;
     }
+
+    _recordClientActivity(
+      clientIp,
+      isPreview ? 'Previewing ${p.basename(filePath)}' : 'Downloading ${p.basename(filePath)}',
+    );
     
     try {
       final file = File(filePath);
       if (await file.exists()) {
         final fileSize = await file.length();
-        request.response.headers.contentType = ContentType.binary;
-        request.response.headers.add('Content-Length', fileSize.toString());
-        request.response.headers.add('Content-Disposition', 'attachment; filename="${p.basename(filePath)}"');
+        final mimeTypeStr = lookupMimeType(filePath) ?? 'application/octet-stream';
+        ContentType contentType;
+        try {
+          final parts = mimeTypeStr.split('/');
+          if (parts.length == 2) {
+            contentType = ContentType(parts[0], parts[1]);
+          } else {
+            contentType = ContentType.binary;
+          }
+        } catch (_) {
+          contentType = ContentType.binary;
+        }
+
+        request.response.headers.contentType = contentType;
+        request.response.headers.add('Accept-Ranges', 'bytes');
         
+        if (isPreview) {
+          request.response.headers.add('Content-Disposition', 'inline; filename="${p.basename(filePath)}"');
+        } else {
+          request.response.headers.add('Content-Disposition', 'attachment; filename="${p.basename(filePath)}"');
+        }
+
+        // Support HTTP Range requests for media streaming and fast thumbnails
+        final rangeHeader = request.headers.value('range');
+        if (rangeHeader != null && rangeHeader.startsWith('bytes=')) {
+          final match = RegExp(r'bytes=(\d+)-(\d+)?').firstMatch(rangeHeader);
+          if (match != null) {
+            final start = int.parse(match.group(1)!);
+            final end = match.group(2) != null ? int.parse(match.group(2)!) : fileSize - 1;
+            
+            if (start < fileSize && end < fileSize && start <= end) {
+              final length = end - start + 1;
+              request.response.statusCode = HttpStatus.partialContent;
+              request.response.headers.add('Content-Range', 'bytes $start-$end/$fileSize');
+              request.response.headers.add('Content-Length', length.toString());
+              await file.openRead(start, end + 1).pipe(request.response);
+              return;
+            }
+          }
+        }
+
+        request.response.headers.add('Content-Length', fileSize.toString());
         await file.openRead().pipe(request.response);
       } else {
         request.response.statusCode = 404;
@@ -712,6 +886,7 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
         await request.response.close();
       }
     } catch (e) {
+      debugPrint('Error downloading file: $e');
       request.response.statusCode = 500;
       request.response.write('Error downloading file: $e');
       await request.response.close();
@@ -722,7 +897,42 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
     try {
       // Canonicalize the path to resolve '..' and symlinks, preventing traversal attacks
       final canonicalPath = p.canonicalize(filePath);
-      return _sharedPaths.any((sharedPath) => canonicalPath.startsWith(p.canonicalize(sharedPath)));
+      final isAllowed = _sharedPaths.any(
+        (sharedPath) => canonicalPath.startsWith(p.canonicalize(sharedPath)),
+      );
+      if (!isAllowed) return false;
+
+      // Enforce host camera date range protection
+      if (_hostCameraDateRange != null &&
+          (canonicalPath.toLowerCase().contains('camera') ||
+           canonicalPath.toLowerCase().contains('dcim') ||
+           canonicalPath.toLowerCase().contains('picture'))) {
+        final file = File(filePath);
+        if (file.existsSync()) {
+          final stat = file.statSync();
+          final start = DateTime(
+            _hostCameraDateRange!.start.year,
+            _hostCameraDateRange!.start.month,
+            _hostCameraDateRange!.start.day,
+            0,
+            0,
+            0,
+          );
+          final end = DateTime(
+            _hostCameraDateRange!.end.year,
+            _hostCameraDateRange!.end.month,
+            _hostCameraDateRange!.end.day,
+            23,
+            59,
+            59,
+          );
+          if (stat.modified.isBefore(start) || stat.modified.isAfter(end)) {
+            return false;
+          }
+        }
+      }
+
+      return true;
     } catch (e) {
       return false;
     }
@@ -846,20 +1056,40 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
     }
   }
 
+  bool _isPhotoRelatedFolder(String folderPath) {
+    final lower = folderPath.toLowerCase();
+    return lower.contains('camera') ||
+        lower.contains('dcim') ||
+        lower.contains('picture') ||
+        lower.contains('photo') ||
+        lower.contains('image') ||
+        lower.contains('gallery');
+  }
+
   Future<void> _loadRemoteFiles(String path) async {
     if (_selectedDevice == null) return;
     final pin = _devicePins[_selectedDevice!.ip] ?? '';
+
+    // Clear client date range filter if navigating into a non-photo folder
+    if (!_isPhotoRelatedFolder(path)) {
+      _selectedDateRange = null;
+    }
 
     setState(() {
       _isLoadingRemoteFiles = true;
     });
 
     try {
+      String url =
+          'http://${_selectedDevice!.ip}:${_selectedDevice!.port}/api/files?path=${Uri.encodeComponent(path)}&code=$pin';
+      if (_isPhotoRelatedFolder(path) && _selectedDateRange != null) {
+        url +=
+            '&startDate=${_selectedDateRange!.start.toIso8601String()}&endDate=${_selectedDateRange!.end.toIso8601String()}';
+      }
+
       final response = await http
           .get(
-            Uri.parse(
-              'http://${_selectedDevice!.ip}:${_selectedDevice!.port}/api/files?path=$path&code=$pin',
-            ),
+            Uri.parse(url),
             headers: {'Content-Type': 'application/json'},
           )
           .timeout(const Duration(seconds: 10));
@@ -872,6 +1102,11 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
           _currentRemotePath = path;
         });
       } else if (response.statusCode == 403) {
+        if (path != '/') {
+          // If navigating to a parent directory outside allowed shared roots, smoothly return to root
+          await _loadRemoteFiles('/');
+          return;
+        }
         _devicePins.remove(_selectedDevice!.ip);
         _showErrorSnackBar('Invalid Access Code for ${_selectedDevice!.name}');
         setState(() {
@@ -892,9 +1127,119 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
     }
   }
 
-  Future<void> _downloadFile(RemoteFileInfo file) async {
+  DownloadTask? _getDownloadTask(String filePath) {
+    for (final task in _downloadQueue.reversed) {
+      if (task.file.path == filePath) {
+        return task;
+      }
+    }
+    return null;
+  }
+
+  bool _isImageFile(RemoteFileInfo file) {
+    final lowerName = file.name.toLowerCase();
+    return file.type.startsWith('image/') ||
+        lowerName.endsWith('.jpg') ||
+        lowerName.endsWith('.jpeg') ||
+        lowerName.endsWith('.png') ||
+        lowerName.endsWith('.webp') ||
+        lowerName.endsWith('.gif') ||
+        lowerName.endsWith('.bmp') ||
+        lowerName.endsWith('.svg') ||
+        lowerName.endsWith('.heic') ||
+        lowerName.endsWith('.ico');
+  }
+
+  bool _isVideoFile(RemoteFileInfo file) {
+    final lowerName = file.name.toLowerCase();
+    return file.type.startsWith('video/') ||
+        lowerName.endsWith('.mp4') ||
+        lowerName.endsWith('.mkv') ||
+        lowerName.endsWith('.avi') ||
+        lowerName.endsWith('.mov') ||
+        lowerName.endsWith('.webm') ||
+        lowerName.endsWith('.flv') ||
+        lowerName.endsWith('.3gp') ||
+        lowerName.endsWith('.m4v') ||
+        lowerName.endsWith('.wmv');
+  }
+
+  bool _isAudioFile(RemoteFileInfo file) {
+    final lowerName = file.name.toLowerCase();
+    return file.type.startsWith('audio/') ||
+        lowerName.endsWith('.mp3') ||
+        lowerName.endsWith('.wav') ||
+        lowerName.endsWith('.aac') ||
+        lowerName.endsWith('.flac') ||
+        lowerName.endsWith('.ogg') ||
+        lowerName.endsWith('.m4a');
+  }
+
+  bool _isTextFile(RemoteFileInfo file) {
+    final lowerName = file.name.toLowerCase();
+    return file.type.startsWith('text/') ||
+        lowerName.endsWith('.txt') ||
+        lowerName.endsWith('.json') ||
+        lowerName.endsWith('.dart') ||
+        lowerName.endsWith('.js') ||
+        lowerName.endsWith('.ts') ||
+        lowerName.endsWith('.html') ||
+        lowerName.endsWith('.css') ||
+        lowerName.endsWith('.xml') ||
+        lowerName.endsWith('.yaml') ||
+        lowerName.endsWith('.yml') ||
+        lowerName.endsWith('.md') ||
+        lowerName.endsWith('.log') ||
+        lowerName.endsWith('.csv');
+  }
+
+  bool _isPdfFile(RemoteFileInfo file) {
+    final lowerName = file.name.toLowerCase();
+    return file.type.contains('pdf') || lowerName.endsWith('.pdf');
+  }
+
+  String _getRemoteFileUrl(RemoteFileInfo file, {bool preview = false}) {
+    if (_selectedDevice == null) return '';
+    final pin = _devicePins[_selectedDevice!.ip] ?? '';
+    final encodedPath = Uri.encodeComponent(file.path);
+    return 'http://${_selectedDevice!.ip}:${_selectedDevice!.port}/api/download?file=$encodedPath&code=$pin${preview ? '&preview=true' : ''}';
+  }
+
+  Future<void> _downloadFile(
+    RemoteFileInfo file, {
+    bool autoOpenOnComplete = false,
+    VoidCallback? onProgress,
+  }) async {
     if (_selectedDevice == null) return;
     
+    // Check if already completed and local file exists
+    final existingTask = _getDownloadTask(file.path);
+    if (existingTask != null && existingTask.status == 'Completed') {
+      final localFile = File(existingTask.savePath);
+      if (await localFile.exists()) {
+        if (autoOpenOnComplete) {
+          try {
+            final result = await OpenFile.open(existingTask.savePath);
+            if (result.type != ResultType.done && result.message.isNotEmpty) {
+              _showErrorSnackBar('Could not open file: ${result.message}');
+            }
+          } catch (e) {
+            _showErrorSnackBar('Error opening file: $e');
+          }
+        } else {
+          _showSuccessSnackBar('Already downloaded: ${file.name}');
+        }
+        return;
+      }
+    }
+
+    // Prevent duplicate concurrent downloads of the same file
+    if (existingTask != null &&
+        (existingTask.status == 'Starting' || existingTask.status == 'Receiving')) {
+      _showSuccessSnackBar('Already downloading ${file.name}');
+      return;
+    }
+
     try {
       // Get Downloads directory for the active platform (respecting Settings downloadPath)
       Directory downloadDir;
@@ -922,11 +1267,15 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
         savePath: savePath,
         progress: 0.0,
         status: 'Starting',
+        receivedBytes: 0,
+        totalBytes: file.size,
       );
       
       setState(() {
+        _downloadQueue.removeWhere((t) => t.file.path == file.path);
         _downloadQueue.add(downloadTask);
       });
+      onProgress?.call();
       
       final pin = _devicePins[_selectedDevice!.ip] ?? '';
       final request = http.Request(
@@ -940,27 +1289,42 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
       if (response.statusCode == 200) {
         final totalBytes = response.contentLength ?? file.size;
         int receivedBytes = 0;
+        downloadTask.totalBytes = totalBytes;
+        downloadTask.status = 'Receiving';
+        onProgress?.call();
         
         final ioFile = File(savePath);
         final sink = ioFile.openWrite();
         
+        DateTime lastUiUpdate = DateTime.now();
+
         await response.stream.forEach((chunk) {
           sink.add(chunk);
           receivedBytes += chunk.length;
           final currentProgress = totalBytes > 0 ? (receivedBytes / totalBytes) : 0.0;
           
-          if (currentProgress - downloadTask.progress > 0.02 || currentProgress >= 1.0) {
-            setState(() {
-              downloadTask.progress = currentProgress;
-            });
+          downloadTask.receivedBytes = receivedBytes;
+          downloadTask.progress = currentProgress.clamp(0.0, 1.0);
+          
+          final now = DateTime.now();
+          if (now.difference(lastUiUpdate).inMilliseconds > 60 || downloadTask.progress >= 1.0) {
+            lastUiUpdate = now;
+            if (mounted) {
+              setState(() {});
+            }
+            onProgress?.call();
           }
         });
         await sink.close();
         
-        setState(() {
-          downloadTask.progress = 1.0;
-          downloadTask.status = 'Completed';
-        });
+        if (mounted) {
+          setState(() {
+            downloadTask.progress = 1.0;
+            downloadTask.receivedBytes = totalBytes > 0 ? totalBytes : receivedBytes;
+            downloadTask.status = 'Completed';
+          });
+        }
+        onProgress?.call();
 
         try {
           NotificationService().showSyncCompletedNotification(
@@ -970,13 +1334,37 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
         } catch (_) {}
         
         _showSuccessSnackBar('Downloaded: ${file.name}');
+
+        // Auto open/play if requested
+        if (autoOpenOnComplete) {
+          try {
+            final result = await OpenFile.open(savePath);
+            if (result.type != ResultType.done && result.message.isNotEmpty) {
+              _showErrorSnackBar('Could not open file: ${result.message}');
+            }
+          } catch (e) {
+            _showErrorSnackBar('Error opening file: $e');
+          }
+        }
       } else {
-        setState(() {
-          downloadTask.status = 'Failed';
-        });
+        if (mounted) {
+          setState(() {
+            downloadTask.status = 'Failed';
+          });
+        }
+        onProgress?.call();
         _showErrorSnackBar('Download failed: ${response.statusCode}');
       }
     } catch (e) {
+      if (mounted) {
+        final task = _getDownloadTask(file.path);
+        if (task != null) {
+          setState(() {
+            task.status = 'Failed';
+          });
+        }
+      }
+      onProgress?.call();
       _showErrorSnackBar('Error downloading file: $e');
     }
   }
@@ -1043,9 +1431,7 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
     if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
-  }
-
-  @override
+  }  @override
   Widget build(BuildContext context) {
     if (_isBrowsingFiles && _selectedDevice != null) {
       return _buildFileBrowser();
@@ -1065,20 +1451,326 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 children: [
-              NetworkStatusWidget(
-                mode: NetworkWidgetMode.sync,
+                  const NetworkStatusWidget(
+                    mode: NetworkWidgetMode.sync,
+                  ),
+                  _buildModeSelector(),
+                  const SizedBox(height: 8),
+                  if (_activeTab == SyncTabMode.connect)
+                    Expanded(child: _buildAccessStorageCard())
+                  else
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          children: [
+                            _buildShareStorageCard(),
+                            const SizedBox(height: 16),
+                            _buildConnectedDevicesCard(),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
               ),
-              // Share Storage Card
-              _buildShareStorageCard(),
-              
-              const SizedBox(height: 16),
-              
-              // Access Storage Card
-              Expanded(child: _buildAccessStorageCard()),
-            ],
+            ),
           ),
         ),
-        ),
+      ),
+    );
+  }
+
+  Widget _buildModeSelector() {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Theme.of(context).brightness == Brightness.dark
+            ? Colors.grey[850]
+            : Colors.grey[200],
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: InkWell(
+              onTap: () {
+                if (_activeTab != SyncTabMode.connect) {
+                  setState(() {
+                    _activeTab = SyncTabMode.connect;
+                  });
+                }
+              },
+              borderRadius: BorderRadius.circular(10),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: _activeTab == SyncTabMode.connect
+                      ? const Color(0xFF4E6AF3)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: _activeTab == SyncTabMode.connect
+                      ? [
+                          BoxShadow(
+                            color: const Color(0xFF4E6AF3).withValues(alpha: 0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          )
+                        ]
+                      : null,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.devices_rounded,
+                      size: 18,
+                      color: _activeTab == SyncTabMode.connect
+                          ? Colors.white
+                          : (Theme.of(context).brightness == Brightness.dark
+                              ? Colors.grey[400]
+                              : Colors.grey[700]),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Connect',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: _activeTab == SyncTabMode.connect
+                            ? Colors.white
+                            : (Theme.of(context).brightness == Brightness.dark
+                                ? Colors.grey[400]
+                                : Colors.grey[700]),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: InkWell(
+              onTap: () {
+                if (_activeTab != SyncTabMode.sync) {
+                  setState(() {
+                    _activeTab = SyncTabMode.sync;
+                  });
+                }
+              },
+              borderRadius: BorderRadius.circular(10),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: _activeTab == SyncTabMode.sync
+                      ? const Color(0xFF4E6AF3)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: _activeTab == SyncTabMode.sync
+                      ? [
+                          BoxShadow(
+                            color: const Color(0xFF4E6AF3).withValues(alpha: 0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          )
+                        ]
+                      : null,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.sync_rounded,
+                      size: 18,
+                      color: _activeTab == SyncTabMode.sync
+                          ? Colors.white
+                          : (Theme.of(context).brightness == Brightness.dark
+                              ? Colors.grey[400]
+                              : Colors.grey[700]),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Sync / Share',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: _activeTab == SyncTabMode.sync
+                            ? Colors.white
+                            : (Theme.of(context).brightness == Brightness.dark
+                                ? Colors.grey[400]
+                                : Colors.grey[700]),
+                      ),
+                    ),
+                    if (_isStorageSharing) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF2AB673),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildConnectedDevicesCard() {
+    final activeClients = _connectedClients.values.toList();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF4E6AF3).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.people_alt_rounded,
+                    color: Color(0xFF4E6AF3),
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Connected Devices',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        'Devices accessing this storage',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (activeClients.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2AB673).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${activeClients.length} active',
+                      style: const TextStyle(
+                        color: Color(0xFF2AB673),
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (activeClients.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? Colors.grey[850]!.withValues(alpha: 0.5)
+                      : Colors.grey[50],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Theme.of(context).dividerColor.withValues(alpha: 0.1),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Icon(
+                      _isStorageSharing
+                          ? Icons.wifi_tethering_rounded
+                          : Icons.cloud_off_rounded,
+                      color: Colors.grey[400],
+                      size: 36,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _isStorageSharing
+                          ? 'Waiting for devices to connect...'
+                          : 'Start sharing storage to allow connections',
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 13,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              )
+            else
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: activeClients.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final client = activeClients[index];
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2AB673).withValues(alpha: 0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.devices_rounded,
+                        color: Color(0xFF2AB673),
+                        size: 18,
+                      ),
+                    ),
+                    title: Text(
+                      client.name,
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(
+                      '${client.lastAction} • ${_getTimeAgo(client.lastActive)}',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '${client.requestCount} requests',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.blue,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+          ],
         ),
       ),
     );
@@ -1229,12 +1921,275 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
                 ],
               ],
             ),
+
+            if (_sharedPaths.any((p) => _isPhotoRelatedFolder(p))) ...[
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+
+              // Camera / Photo Privacy Date Range Setting (Non-overflowing layout)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _hostCameraDateRange != null
+                      ? const Color(0xFF4E6AF3).withValues(alpha: 0.08)
+                      : Theme.of(context).brightness == Brightness.dark
+                          ? Colors.grey[850]!.withValues(alpha: 0.5)
+                          : Colors.grey[50],
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: _hostCameraDateRange != null
+                        ? const Color(0xFF4E6AF3).withValues(alpha: 0.3)
+                        : Theme.of(context).dividerColor.withValues(alpha: 0.08),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header Row: Icon + Title + Protected Badge
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: _hostCameraDateRange != null
+                                ? const Color(0xFF4E6AF3).withValues(alpha: 0.15)
+                                : Colors.grey.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Icon(
+                            _hostCameraDateRange != null
+                                ? Icons.shield_rounded
+                                : Icons.photo_library_outlined,
+                            color: _hostCameraDateRange != null
+                                ? const Color(0xFF4E6AF3)
+                                : Colors.grey[700],
+                            size: 16,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'Camera Photos Privacy',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (_hostCameraDateRange != null) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF4E6AF3),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Text(
+                              'Protected',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    // Subtitle description & Action Buttons
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _hostCameraDateRange != null
+                                ? 'Sharing only: ${_formatDateShort(_hostCameraDateRange!.start)} - ${_formatDateShort(_hostCameraDateRange!.end)}'
+                                : 'All camera photos are accessible to connected devices',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: _hostCameraDateRange != null
+                                  ? const Color(0xFF4E6AF3)
+                                  : Colors.grey[600],
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        if (_hostCameraDateRange != null) ...[
+                          IconButton(
+                            icon: const Icon(Icons.close_rounded, size: 18),
+                            tooltip: 'Remove date restriction',
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            onPressed: () async {
+                              setState(() {
+                                _hostCameraDateRange = null;
+                              });
+                              await _saveSettings();
+                              _showSuccessSnackBar(
+                                'Date restriction removed: all photos shared',
+                              );
+                            },
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        ElevatedButton(
+                          onPressed: _showHostDateRangeDialog,
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            backgroundColor: const Color(0xFF4E6AF3),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: Text(
+                            _hostCameraDateRange != null ? 'Change' : 'Set Range',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
-    Widget _buildAccessStorageCard() {
+
+  Future<void> _showHostDateRangeDialog() async {
+    final now = DateTime.now();
+    final result = await showDialog<dynamic>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.shield_rounded, color: Color(0xFF4E6AF3)),
+            SizedBox(width: 10),
+            Text('Protect Camera Photos', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Select which date range of photos to share. Connected devices will ONLY be able to see and download photos taken within this range:',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              leading: const Icon(Icons.all_inclusive_rounded),
+              title: const Text('Share All Photos (No limit)'),
+              onTap: () => Navigator.pop(context, 'clear'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.today_rounded),
+              title: const Text('Today\'s Photos Only'),
+              onTap: () => Navigator.pop(
+                context,
+                DateTimeRange(
+                  start: DateTime(now.year, now.month, now.day),
+                  end: DateTime(now.year, now.month, now.day, 23, 59, 59),
+                ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.calendar_view_week_rounded),
+              title: const Text('Last 7 Days'),
+              onTap: () => Navigator.pop(
+                context,
+                DateTimeRange(
+                  start: now.subtract(const Duration(days: 7)),
+                  end: now,
+                ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.calendar_month_rounded),
+              title: const Text('Last 30 Days'),
+              onTap: () => Navigator.pop(
+                context,
+                DateTimeRange(
+                  start: now.subtract(const Duration(days: 30)),
+                  end: now,
+                ),
+              ),
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.edit_calendar_rounded, color: Color(0xFF4E6AF3)),
+              title: const Text(
+                'Custom Date Range...',
+                style: TextStyle(color: Color(0xFF4E6AF3), fontWeight: FontWeight.bold),
+              ),
+              onTap: () => Navigator.pop(context, 'custom'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result == 'clear') {
+      setState(() {
+        _hostCameraDateRange = null;
+      });
+      await _saveSettings();
+      _showSuccessSnackBar('Sharing all camera photos');
+    } else if (result == 'custom') {
+      if (!mounted) return;
+      final customRange = await showDateRangePicker(
+        context: context,
+        firstDate: DateTime(2000),
+        lastDate: DateTime.now().add(const Duration(days: 365)),
+        initialDateRange: _hostCameraDateRange ??
+            DateTimeRange(start: now.subtract(const Duration(days: 7)), end: now),
+      );
+      if (customRange != null) {
+        setState(() {
+          _hostCameraDateRange = customRange;
+        });
+        await _saveSettings();
+        _showSuccessSnackBar(
+          'Camera restricted to ${_formatDateShort(customRange.start)} - ${_formatDateShort(customRange.end)}',
+        );
+      }
+    } else if (result is DateTimeRange) {
+      setState(() {
+        _hostCameraDateRange = result;
+      });
+      await _saveSettings();
+      _showSuccessSnackBar(
+        'Camera restricted to ${_formatDateShort(result.start)} - ${_formatDateShort(result.end)}',
+      );
+    }
+  }
+
+  Widget _buildAccessStorageCard() {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -1484,6 +2439,31 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildFileBrowser() {
+    final isPhotoFolder =
+        _currentRemotePath != '/' && _isPhotoRelatedFolder(_currentRemotePath);
+
+    final displayedFiles = _remoteFiles.where((file) {
+      if (file.isDirectory) return true;
+      if (!isPhotoFolder || _selectedDateRange == null) return true;
+      final start = DateTime(
+        _selectedDateRange!.start.year,
+        _selectedDateRange!.start.month,
+        _selectedDateRange!.start.day,
+        0,
+        0,
+        0,
+      );
+      final end = DateTime(
+        _selectedDateRange!.end.year,
+        _selectedDateRange!.end.month,
+        _selectedDateRange!.end.day,
+        23,
+        59,
+        59,
+      );
+      return !file.modified.isBefore(start) && !file.modified.isAfter(end);
+    }).toList();
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -1525,15 +2505,19 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
                     : Colors.grey[100],
                 child: Row(
                   children: [
-                    const Icon(
-                      Icons.folder_open_rounded,
+                    Icon(
+                      _currentRemotePath == '/'
+                          ? Icons.folder_shared_rounded
+                          : Icons.folder_open_rounded,
                       size: 16,
-                      color: Color(0xFF4E6AF3),
+                      color: const Color(0xFF4E6AF3),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        _currentRemotePath,
+                        _currentRemotePath == '/'
+                            ? 'Shared Folders (Choose folder)'
+                            : _currentRemotePath,
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
@@ -1548,6 +2532,10 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
                   ],
                 ),
               ),
+
+              // Date Range Filter Bar (ONLY shown when inside a photo-related folder like Camera/DCIM)
+              if (isPhotoFolder)
+                _buildDateRangeFilterBar(),
 
               // File list / Loading / Empty State
               Expanded(
@@ -1570,32 +2558,51 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
                           ],
                         ),
                       )
-                    : _remoteFiles.isEmpty && _currentRemotePath == '/'
+                    : displayedFiles.isEmpty
                         ? Center(
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Icon(
-                                  Icons.folder_open,
+                                  _selectedDateRange != null
+                                      ? Icons.filter_alt_off_rounded
+                                      : Icons.folder_open,
                                   size: 64,
                                   color: Colors.grey[400],
                                 ),
                                 const SizedBox(height: 16),
                                 Text(
-                                  'No files found',
+                                  _selectedDateRange != null
+                                      ? 'No files found within selected date range'
+                                      : (_currentRemotePath == '/'
+                                          ? 'No shared folders available'
+                                          : 'No files in this folder'),
                                   style: TextStyle(
                                     color: Colors.grey[600],
-                                    fontSize: 16,
+                                    fontSize: 15,
                                   ),
                                 ),
+                                if (_selectedDateRange != null) ...[
+                                  const SizedBox(height: 12),
+                                  OutlinedButton.icon(
+                                    onPressed: () {
+                                      setState(() {
+                                        _selectedDateRange = null;
+                                      });
+                                      _loadRemoteFiles(_currentRemotePath);
+                                    },
+                                    icon: const Icon(Icons.clear_rounded),
+                                    label: const Text('Clear Date Filter'),
+                                  ),
+                                ],
                               ],
                             ),
                           )
                         : ListView.builder(
                             padding: const EdgeInsets.all(8),
                             itemCount: _currentRemotePath != '/'
-                                ? _remoteFiles.length + 1
-                                : _remoteFiles.length,
+                                ? displayedFiles.length + 1
+                                : displayedFiles.length,
                             itemBuilder: (context, index) {
                               if (_currentRemotePath != '/' && index == 0) {
                                 return Card(
@@ -1619,7 +2626,7 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
                                       ),
                                     ),
                                     title: const Text(
-                                      '.. (Parent Directory)',
+                                      '.. (Back to Shared Folders)',
                                       style: TextStyle(
                                         fontWeight: FontWeight.bold,
                                         fontSize: 14,
@@ -1633,7 +2640,11 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
                               final fileIndex = _currentRemotePath != '/'
                                   ? index - 1
                                   : index;
-                              final file = _remoteFiles[fileIndex];
+                              final file = displayedFiles[fileIndex];
+                              final task = _getDownloadTask(file.path);
+                              final isReceiving = task != null &&
+                                  (task.status == 'Starting' || task.status == 'Receiving');
+
                               return Card(
                                 margin: const EdgeInsets.only(bottom: 4),
                                 child: ListTile(
@@ -1641,27 +2652,7 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
                                     horizontal: 12,
                                     vertical: 8,
                                   ),
-                                  leading: Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: file.isDirectory
-                                          ? const Color(0xFF4E6AF3).withValues(
-                                              alpha: 0.1,
-                                            )
-                                          : _getFileIconColor(file.type)
-                                              .withValues(alpha: 0.1),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Icon(
-                                      file.isDirectory
-                                          ? Icons.folder
-                                          : _getFileIcon(file.type),
-                                      color: file.isDirectory
-                                          ? const Color(0xFF4E6AF3)
-                                          : _getFileIconColor(file.type),
-                                      size: 20,
-                                    ),
-                                  ),
+                                  leading: _buildFileThumbnail(file),
                                   title: Text(
                                     file.name,
                                     style: const TextStyle(
@@ -1672,20 +2663,41 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                   subtitle: file.isDirectory
-                                      ? const Text(
-                                          'Folder',
-                                          style: TextStyle(fontSize: 12),
+                                      ? Text(
+                                          _currentRemotePath == '/'
+                                              ? 'Shared Folder • Tap to open'
+                                              : 'Folder',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: _currentRemotePath == '/'
+                                                ? const Color(0xFF4E6AF3)
+                                                : Colors.grey[600],
+                                            fontWeight: _currentRemotePath == '/'
+                                                ? FontWeight.w500
+                                                : FontWeight.normal,
+                                          ),
                                         )
                                       : Column(
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
-                                            Text(
-                                              _formatFileSize(file.size),
-                                              style: const TextStyle(
-                                                fontSize: 12,
+                                            if (isReceiving) ...[
+                                              Text(
+                                                'Receiving: ${_formatFileSize(task.receivedBytes)} / ${_formatFileSize(task.totalBytes)} (${(task.progress * 100).toInt()}%)',
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                  color: Color(0xFF4E6AF3),
+                                                  fontWeight: FontWeight.w600,
+                                                ),
                                               ),
-                                            ),
+                                            ] else ...[
+                                              Text(
+                                                _formatFileSize(file.size),
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ],
                                             Text(
                                               _formatDate(file.modified),
                                               style: TextStyle(
@@ -1700,24 +2712,1005 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
                                           Icons.chevron_right,
                                           color: Color(0xFF4E6AF3),
                                         )
-                                      : IconButton(
-                                          icon: const Icon(
-                                            Icons.download,
-                                            color: Color(0xFF2AB673),
-                                          ),
-                                          onPressed: () => _downloadFile(file),
-                                        ),
+                                      : _buildDownloadButton(file),
                                   onTap: file.isDirectory
                                       ? () => _loadRemoteFiles(file.path)
-                                      : null,
+                                      : () => _showFilePreviewDialog(file),
                                 ),
                               );
                             },
                           ),
               ),
+              _buildActiveDownloadsBar(),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildDateRangeFilterBar() {
+    final hasFilter = _selectedDateRange != null;
+    final isCamera = _currentRemotePath.toLowerCase().contains('camera') ||
+        _currentRemotePath.toLowerCase().contains('dcim');
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: hasFilter
+            ? const Color(0xFF4E6AF3).withValues(alpha: 0.1)
+            : (isCamera
+                ? const Color(0xFF4E6AF3).withValues(alpha: 0.05)
+                : (Theme.of(context).brightness == Brightness.dark
+                    ? Colors.grey[900]
+                    : Colors.grey[50])),
+        border: Border(
+          bottom: BorderSide(
+            color: Theme.of(context).dividerColor.withValues(alpha: 0.1),
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.calendar_today_rounded,
+            size: 16,
+            color: hasFilter ? const Color(0xFF4E6AF3) : Colors.grey[600],
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: GestureDetector(
+              onTap: _showDateRangeFilterDialog,
+              child: Text(
+                hasFilter
+                    ? '${_formatDateShort(_selectedDateRange!.start)} - ${_formatDateShort(_selectedDateRange!.end)}'
+                    : isCamera
+                        ? 'Filter Camera photos by date range...'
+                        : 'Filter by date range...',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: hasFilter ? FontWeight.bold : FontWeight.normal,
+                  color: hasFilter
+                      ? const Color(0xFF4E6AF3)
+                      : (Theme.of(context).brightness == Brightness.dark
+                          ? Colors.grey[300]
+                          : Colors.grey[700]),
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+          if (hasFilter) ...[
+            IconButton(
+              icon: const Icon(Icons.close_rounded, size: 16),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              tooltip: 'Clear date filter',
+              onPressed: () {
+                setState(() {
+                  _selectedDateRange = null;
+                });
+                _loadRemoteFiles(_currentRemotePath);
+              },
+            ),
+            const SizedBox(width: 8),
+          ],
+          TextButton.icon(
+            onPressed: _showDateRangeFilterDialog,
+            icon: Icon(
+              hasFilter ? Icons.edit_calendar_rounded : Icons.tune_rounded,
+              size: 14,
+            ),
+            label: Text(
+              hasFilter ? 'Change' : 'Filter',
+              style: const TextStyle(fontSize: 12),
+            ),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              foregroundColor: const Color(0xFF4E6AF3),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showDateRangeFilterDialog() async {
+    final now = DateTime.now();
+    final result = await showDialog<dynamic>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.date_range_rounded, color: Color(0xFF4E6AF3)),
+            SizedBox(width: 10),
+            Text('Select Date Range', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.all_inclusive_rounded),
+              title: const Text('All Dates (No filter)'),
+              onTap: () => Navigator.pop(context, 'clear'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.today_rounded),
+              title: const Text('Today'),
+              onTap: () => Navigator.pop(
+                context,
+                DateTimeRange(
+                  start: DateTime(now.year, now.month, now.day),
+                  end: DateTime(now.year, now.month, now.day, 23, 59, 59),
+                ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.calendar_view_week_rounded),
+              title: const Text('Last 7 Days'),
+              onTap: () => Navigator.pop(
+                context,
+                DateTimeRange(
+                  start: now.subtract(const Duration(days: 7)),
+                  end: now,
+                ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.calendar_month_rounded),
+              title: const Text('Last 30 Days'),
+              onTap: () => Navigator.pop(
+                context,
+                DateTimeRange(
+                  start: now.subtract(const Duration(days: 30)),
+                  end: now,
+                ),
+              ),
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.edit_calendar_rounded, color: Color(0xFF4E6AF3)),
+              title: const Text(
+                'Custom Date Range...',
+                style: TextStyle(color: Color(0xFF4E6AF3), fontWeight: FontWeight.bold),
+              ),
+              onTap: () => Navigator.pop(context, 'custom'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result == 'clear') {
+      setState(() {
+        _selectedDateRange = null;
+      });
+      _loadRemoteFiles(_currentRemotePath);
+    } else if (result == 'custom') {
+      if (!mounted) return;
+      final customRange = await showDateRangePicker(
+        context: context,
+        firstDate: DateTime(2000),
+        lastDate: DateTime.now().add(const Duration(days: 365)),
+        initialDateRange: _selectedDateRange ??
+            DateTimeRange(start: now.subtract(const Duration(days: 7)), end: now),
+      );
+      if (customRange != null) {
+        setState(() {
+          _selectedDateRange = customRange;
+        });
+        _loadRemoteFiles(_currentRemotePath);
+      }
+    } else if (result is DateTimeRange) {
+      setState(() {
+        _selectedDateRange = result;
+      });
+      _loadRemoteFiles(_currentRemotePath);
+    }
+  }
+
+  String _formatDateShort(DateTime dt) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    return '${dt.day} ${months[dt.month - 1]} ${dt.year}';
+  }
+
+  Widget _buildFileThumbnail(RemoteFileInfo file) {
+    if (file.isDirectory) {
+      return Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: const Color(0xFF4E6AF3).withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Icon(
+          Icons.folder_rounded,
+          color: Color(0xFF4E6AF3),
+          size: 24,
+        ),
+      );
+    }
+
+    if (_isImageFile(file)) {
+      final previewUrl = _getRemoteFileUrl(file, preview: true);
+      return Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: Colors.blue.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: Colors.blue.withValues(alpha: 0.2),
+            width: 1,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: previewUrl.isNotEmpty
+            ? Image.network(
+                previewUrl,
+                cacheWidth: 140,
+                cacheHeight: 140,
+                fit: BoxFit.cover,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Center(
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        value: loadingProgress.expectedTotalBytes != null
+                            ? loadingProgress.cumulativeBytesLoaded /
+                                loadingProgress.expectedTotalBytes!
+                            : null,
+                      ),
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  return const Icon(
+                    Icons.image_rounded,
+                    color: Colors.blue,
+                    size: 22,
+                  );
+                },
+              )
+            : const Icon(Icons.image_rounded, color: Colors.blue, size: 22),
+      );
+    }
+
+    if (_isVideoFile(file)) {
+      return Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF2C243B), Color(0xFF1E2238)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: Colors.redAccent.withValues(alpha: 0.3),
+            width: 1,
+          ),
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            const Icon(
+              Icons.video_library_rounded,
+              color: Colors.white70,
+              size: 22,
+            ),
+            Positioned(
+              bottom: 2,
+              right: 2,
+              child: Container(
+                padding: const EdgeInsets.all(2),
+                decoration: const BoxDecoration(
+                  color: Colors.redAccent,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.play_arrow_rounded,
+                  color: Colors.white,
+                  size: 10,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: _getFileIconColor(file.type).withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Icon(
+        _getFileIcon(file.type),
+        color: _getFileIconColor(file.type),
+        size: 22,
+      ),
+    );
+  }
+
+  Widget _buildDownloadButton(RemoteFileInfo file) {
+    final task = _getDownloadTask(file.path);
+
+    if (task != null) {
+      if (task.status == 'Starting' || task.status == 'Receiving') {
+        final percent = (task.progress * 100).toInt();
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFF4E6AF3).withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: const Color(0xFF4E6AF3).withValues(alpha: 0.4),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  value: task.progress > 0 ? task.progress : null,
+                  strokeWidth: 2,
+                  color: const Color(0xFF4E6AF3),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '$percent%',
+                style: const TextStyle(
+                  color: Color(0xFF4E6AF3),
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        );
+      } else if (task.status == 'Completed') {
+        return IconButton(
+          icon: const Icon(
+            Icons.check_circle_rounded,
+            color: Color(0xFF2AB673),
+            size: 24,
+          ),
+          tooltip: 'Downloaded - Tap to open',
+          onPressed: () async {
+            try {
+              await OpenFile.open(task.savePath);
+            } catch (e) {
+              _showErrorSnackBar('Error opening file: $e');
+            }
+          },
+        );
+      } else if (task.status == 'Failed') {
+        return IconButton(
+          icon: const Icon(
+            Icons.replay_rounded,
+            color: Colors.redAccent,
+            size: 22,
+          ),
+          tooltip: 'Download failed - Tap to retry',
+          onPressed: () => _downloadFile(file),
+        );
+      }
+    }
+
+    return IconButton(
+      icon: const Icon(
+        Icons.download_rounded,
+        color: Color(0xFF2AB673),
+        size: 24,
+      ),
+      tooltip: 'Download',
+      onPressed: () => _downloadFile(file),
+    );
+  }
+
+  Widget _buildActiveDownloadsBar() {
+    final activeTasks = _downloadQueue
+        .where((t) => t.status == 'Starting' || t.status == 'Receiving')
+        .toList();
+
+    if (activeTasks.isEmpty) return const SizedBox.shrink();
+
+    final currentTask = activeTasks.last;
+    final percent = (currentTask.progress * 100).toInt();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: Theme.of(context).brightness == Brightness.dark
+            ? const Color(0xFF1E2640)
+            : const Color(0xFFEEF2FF),
+        border: Border(
+          top: BorderSide(
+            color: const Color(0xFF4E6AF3).withValues(alpha: 0.3),
+            width: 1,
+          ),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  value: currentTask.progress > 0 ? currentTask.progress : null,
+                  strokeWidth: 2,
+                  color: const Color(0xFF4E6AF3),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Receiving: ${currentTask.file.name}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF4E6AF3),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text(
+                '${_formatFileSize(currentTask.receivedBytes)} / ${_formatFileSize(currentTask.totalBytes)} ($percent%)',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF4E6AF3),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: currentTask.progress > 0 ? currentTask.progress : null,
+              minHeight: 4,
+              backgroundColor: const Color(0xFF4E6AF3).withValues(alpha: 0.15),
+              valueColor: const AlwaysStoppedAnimation(Color(0xFF4E6AF3)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showFilePreviewDialog(RemoteFileInfo file) async {
+    if (file.isDirectory) return;
+
+    final previewUrl = _getRemoteFileUrl(file, preview: true);
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final task = _getDownloadTask(file.path);
+            final isDownloading =
+                task != null && (task.status == 'Starting' || task.status == 'Receiving');
+            final isCompleted = task != null && task.status == 'Completed';
+
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              clipBehavior: Clip.antiAlias,
+              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: 600,
+                  maxHeight: 700,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Header
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? Colors.grey[900]
+                            : Colors.grey[100],
+                        border: Border(
+                          bottom: BorderSide(
+                            color: Theme.of(context).dividerColor.withValues(alpha: 0.1),
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _isImageFile(file)
+                                ? Icons.image_rounded
+                                : _isVideoFile(file)
+                                    ? Icons.videocam_rounded
+                                    : _isAudioFile(file)
+                                        ? Icons.audiotrack_rounded
+                                        : _isPdfFile(file)
+                                            ? Icons.picture_as_pdf_rounded
+                                            : Icons.insert_drive_file_rounded,
+                            color: _getFileIconColor(file.type),
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              file.name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close_rounded),
+                            onPressed: () => Navigator.of(dialogContext).pop(),
+                            tooltip: 'Close preview',
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Preview Content Body
+                    Flexible(
+                      child: Container(
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? Colors.black87
+                            : Colors.grey[50],
+                        alignment: Alignment.center,
+                        child: _buildPreviewContentBody(file, previewUrl, setDialogState),
+                      ),
+                    ),
+
+                    // Footer with live download button & info
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? Colors.grey[900]
+                            : Colors.white,
+                        border: Border(
+                          top: BorderSide(
+                            color: Theme.of(context).dividerColor.withValues(alpha: 0.1),
+                          ),
+                        ),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // File info summary
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Size: ${_formatFileSize(file.size)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              Text(
+                                'Modified: ${_formatDate(file.modified)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+
+                          // Live status or Action Button
+                          if (isDownloading) ...[
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      _isVideoFile(file)
+                                          ? 'Receiving & preparing to play...'
+                                          : 'Receiving file...',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF4E6AF3),
+                                      ),
+                                    ),
+                                    Text(
+                                      '${_formatFileSize(task.receivedBytes)} / ${_formatFileSize(task.totalBytes)} (${(task.progress * 100).toInt()}%)',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF4E6AF3),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: LinearProgressIndicator(
+                                    value: task.progress > 0 ? task.progress : null,
+                                    minHeight: 6,
+                                    backgroundColor: const Color(0xFF4E6AF3).withValues(alpha: 0.15),
+                                    valueColor: const AlwaysStoppedAnimation(Color(0xFF4E6AF3)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ] else if (isCompleted) ...[
+                            ElevatedButton.icon(
+                              onPressed: () async {
+                                try {
+                                  final result = await OpenFile.open(task.savePath);
+                                  if (result.type != ResultType.done && result.message.isNotEmpty) {
+                                    _showErrorSnackBar('Could not open file: ${result.message}');
+                                  }
+                                } catch (e) {
+                                  _showErrorSnackBar('Error opening file: $e');
+                                }
+                              },
+                              icon: Icon(
+                                _isVideoFile(file)
+                                    ? Icons.play_arrow_rounded
+                                    : Icons.open_in_new_rounded,
+                              ),
+                              label: Text(_isVideoFile(file) ? 'Play Video' : 'Open File'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF2AB673),
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size.fromHeight(44),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                            ),
+                          ] else ...[
+                            ElevatedButton.icon(
+                              onPressed: () {
+                                _downloadFile(
+                                  file,
+                                  autoOpenOnComplete: _isVideoFile(file),
+                                  onProgress: () => setDialogState(() {}),
+                                );
+                                setDialogState(() {});
+                              },
+                              icon: Icon(
+                                _isVideoFile(file)
+                                    ? Icons.play_circle_fill_rounded
+                                    : Icons.download_rounded,
+                              ),
+                              label: Text(
+                                _isVideoFile(file) ? 'Download & Play' : 'Download File',
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF4E6AF3),
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size.fromHeight(44),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildPreviewContentBody(
+    RemoteFileInfo file,
+    String previewUrl,
+    StateSetter setDialogState,
+  ) {
+    if (_isImageFile(file)) {
+      return Stack(
+        alignment: Alignment.center,
+        children: [
+          InteractiveViewer(
+            panEnabled: true,
+            minScale: 0.5,
+            maxScale: 4.0,
+            child: Center(
+              child: Image.network(
+                previewUrl,
+                fit: BoxFit.contain,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(
+                          value: loadingProgress.expectedTotalBytes != null
+                              ? loadingProgress.cumulativeBytesLoaded /
+                                  loadingProgress.expectedTotalBytes!
+                              : null,
+                          color: const Color(0xFF4E6AF3),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Loading image preview...',
+                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  return const Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.broken_image_rounded, size: 54, color: Colors.grey),
+                      SizedBox(height: 8),
+                      Text('Could not load image preview', style: TextStyle(color: Colors.grey)),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 8,
+            right: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.zoom_in_rounded, size: 14, color: Colors.white70),
+                  SizedBox(width: 4),
+                  Text(
+                    'Pinch / scroll to zoom',
+                    style: TextStyle(color: Colors.white70, fontSize: 10),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (_isVideoFile(file)) {
+      final task = _getDownloadTask(file.path);
+      final isDownloading =
+          task != null && (task.status == 'Starting' || task.status == 'Receiving');
+      final isCompleted = task != null && task.status == 'Completed';
+
+      void handleVideoPlayTap() async {
+        if (isCompleted) {
+          try {
+            final result = await OpenFile.open(task.savePath);
+            if (result.type != ResultType.done && result.message.isNotEmpty) {
+              _showErrorSnackBar('Could not open file: ${result.message}');
+            }
+          } catch (e) {
+            _showErrorSnackBar('Error opening file: $e');
+          }
+        } else if (!isDownloading) {
+          _downloadFile(
+            file,
+            autoOpenOnComplete: true,
+            onProgress: () => setDialogState(() {}),
+          );
+          setDialogState(() {});
+        }
+      }
+
+      return Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            GestureDetector(
+              onTap: handleVideoPlayTap,
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: Container(
+                  width: 100,
+                  height: 100,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF4E6AF3), Color(0xFF9C27B0)],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF4E6AF3).withValues(alpha: 0.35),
+                        blurRadius: 18,
+                        spreadRadius: 3,
+                      ),
+                    ],
+                  ),
+                  child: isDownloading
+                      ? Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            SizedBox(
+                              width: 60,
+                              height: 60,
+                              child: CircularProgressIndicator(
+                                value: task.progress > 0 ? task.progress : null,
+                                strokeWidth: 4,
+                                color: Colors.white,
+                              ),
+                            ),
+                            Text(
+                              '${(task.progress * 100).toInt()}%',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        )
+                      : const Icon(
+                          Icons.play_arrow_rounded,
+                          size: 60,
+                          color: Colors.white,
+                        ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              file.name,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.redAccent.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                'Video File • ${_formatFileSize(file.size)}',
+                style: const TextStyle(
+                  color: Colors.redAccent,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              isCompleted
+                  ? 'Video downloaded! Tap play button to watch.'
+                  : isDownloading
+                      ? 'Downloading video... Will automatically play once complete.'
+                      : 'Tap to download and automatically play video.',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_isTextFile(file) && file.size < 500000) {
+      return FutureBuilder<http.Response>(
+        future: http.get(Uri.parse(previewUrl)).timeout(const Duration(seconds: 5)),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(color: Color(0xFF4E6AF3)),
+            );
+          }
+          if (snapshot.hasData && snapshot.data!.statusCode == 200) {
+            final text = snapshot.data!.body;
+            return Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              child: SingleChildScrollView(
+                child: SelectableText(
+                  text,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            );
+          }
+          return Center(
+            child: Text(
+              'Text preview unavailable',
+              style: TextStyle(color: Colors.grey[600]),
+            ),
+          );
+        },
+      );
+    }
+
+    // Generic file fallback
+    return Padding(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: _getFileIconColor(file.type).withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              _getFileIcon(file.type),
+              size: 54,
+              color: _getFileIconColor(file.type),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            file.name,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Type: ${file.type}',
+            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+          ),
+        ],
       ),
     );
   }
@@ -1894,13 +3887,17 @@ class DownloadTask {
   final RemoteFileInfo file;
   final String savePath;
   double progress;
-  String status;
+  String status; // 'Starting', 'Receiving', 'Completed', 'Failed'
+  int receivedBytes;
+  int totalBytes;
 
   DownloadTask({
     required this.file,
     required this.savePath,
     required this.progress,
     required this.status,
+    this.receivedBytes = 0,
+    this.totalBytes = 0,
   });
 }
   
