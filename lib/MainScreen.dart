@@ -6,6 +6,7 @@ import 'package:speedsharemob/FileSenderScreen.dart';
 import 'package:speedsharemob/ReceiveScreen.dart';
 import 'package:speedsharemob/SettingsScreen.dart';
 import 'package:speedsharemob/SyncScreen.dart';
+import 'package:speedsharemob/StreamScreen.dart';
 import 'package:speedsharemob/DeviceNameManager.dart';
 import 'package:speedsharemob/PermissionManager.dart';
 import 'package:speedsharemob/SharedContentService.dart';
@@ -33,6 +34,7 @@ class _MainScreenState extends State<MainScreen>
     {'title': 'Send', 'icon': Icons.send_rounded},
     {'title': 'Receive', 'icon': Icons.download_rounded},
     {'title': 'Sync', 'icon': Icons.sync_rounded},
+    {'title': 'Stream', 'icon': Icons.play_circle_fill_rounded},
     {'title': 'Settings', 'icon': Icons.settings_rounded},
   ];
 
@@ -104,7 +106,8 @@ class _MainScreenState extends State<MainScreen>
         FileSenderScreen(key: _fileSenderKey), // Index 1: Send
         const ReceiveScreen(), // Index 2: Receive
         const SyncScreen(), // Index 3: Sync
-        const SettingsScreen(), // Index 4: Settings
+        const StreamScreen(), // Index 4: Stream
+        const SettingsScreen(), // Index 5: Settings
       ],
     );
 
@@ -532,6 +535,38 @@ class _MainScreenState extends State<MainScreen>
                                   () {
                                     setState(() {
                                       _selectedIndex = 2;
+                                    });
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildActionCard(
+                                  'Storage Sync',
+                                  Icons.sync_rounded,
+                                  const Color(0xFFF39C12),
+                                  'Sync and explore files across devices',
+                                  () {
+                                    setState(() {
+                                      _selectedIndex = 3;
+                                    });
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: _buildActionCard(
+                                  'Media Stream',
+                                  Icons.play_circle_fill_rounded,
+                                  const Color(0xFF9B59B6),
+                                  'Stream music & video with zero downloads',
+                                  () {
+                                    setState(() {
+                                      _selectedIndex = 4;
                                     });
                                   },
                                 ),

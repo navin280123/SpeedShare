@@ -54,6 +54,8 @@ dependencies:
   receive_sharing_intent: ^1.9.0
   desktop_drop: ^0.7.1
   app_settings: ^9.0.0
+  audioplayers: ^6.8.1
+  video_player: ^2.14.0
 
 dev_dependencies:
   flutter_test:
