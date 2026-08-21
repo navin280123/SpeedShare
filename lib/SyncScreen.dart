@@ -114,12 +114,22 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
       }
 
       // Initialize sync discovery socket
-      _syncDiscoverySocket = await RawDatagramSocket.bind(
-        InternetAddress.anyIPv4,
-        8083,
-        reuseAddress: true,
-      );
+      try {
+        _syncDiscoverySocket = await RawDatagramSocket.bind(
+          InternetAddress.anyIPv4,
+          8083,
+          reuseAddress: true,
+        );
+      } catch (_) {
+        _syncDiscoverySocket = await RawDatagramSocket.bind(
+          InternetAddress.anyIPv4,
+          8083,
+        );
+      }
       _syncDiscoverySocket!.broadcastEnabled = true;
+      try {
+        _syncDiscoverySocket!.joinMulticast(InternetAddress('239.255.255.250'));
+      } catch (_) {}
       
       _syncDiscoverySocket!.listen((event) {
         if (event == RawSocketEvent.read) {
@@ -316,6 +326,10 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
         _syncDiscoverySocket!.send(data, InternetAddress('255.255.255.255'), 8083);
       } catch (_) {}
 
+      try {
+        _syncDiscoverySocket!.send(data, InternetAddress('239.255.255.250'), 8083);
+      } catch (_) {}
+
       final interfaces = await NetworkInterface.list();
       for (var interface in interfaces) {
         if (interface.name.contains('lo')) continue;
@@ -399,6 +413,10 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
 
       try {
         _syncDiscoverySocket!.send(data, InternetAddress('255.255.255.255'), 8083);
+      } catch (_) {}
+
+      try {
+        _syncDiscoverySocket!.send(data, InternetAddress('239.255.255.250'), 8083);
       } catch (_) {}
 
       final interfaces = await NetworkInterface.list();
@@ -506,9 +524,12 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
       
       final data = utf8.encode(announcement);
       
-      // Try 255.255.255.255 first
+      // Try 255.255.255.255 and multicast first
       try {
         _syncDiscoverySocket!.send(data, InternetAddress('255.255.255.255'), 8083);
+      } catch (_) {}
+      try {
+        _syncDiscoverySocket!.send(data, InternetAddress('239.255.255.250'), 8083);
       } catch (_) {}
       
       // Also broadcast to interfaces directly

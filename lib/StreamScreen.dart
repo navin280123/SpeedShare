@@ -215,19 +215,31 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
     });
   }
 
+  bool _isTcpScanning = false;
+
   Future<void> _initDiscovery() async {
     try {
-      _streamDiscoverySocket = await RawDatagramSocket.bind(
-        InternetAddress.anyIPv4,
-        8085,
-        reuseAddress: true,
-        reusePort: true,
-      );
-      _streamDiscoverySocket!.broadcastEnabled = true;
+      try {
+        _streamDiscoverySocket = await RawDatagramSocket.bind(
+          InternetAddress.anyIPv4,
+          8085,
+          reuseAddress: true,
+        );
+      } catch (e) {
+        _streamDiscoverySocket = await RawDatagramSocket.bind(
+          InternetAddress.anyIPv4,
+          8085,
+        );
+      }
+      _streamDiscoverySocket?.broadcastEnabled = true;
 
-      _streamDiscoverySocket!.listen((event) {
+      try {
+        _streamDiscoverySocket?.joinMulticast(InternetAddress('239.255.255.250'));
+      } catch (_) {}
+
+      _streamDiscoverySocket?.listen((event) {
         if (event == RawSocketEvent.read) {
-          final datagram = _streamDiscoverySocket!.receive();
+          final datagram = _streamDiscoverySocket?.receive();
           if (datagram != null) {
             _handleDiscoveryDatagram(datagram);
           }
@@ -255,7 +267,7 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
   }
 
   void _cleanupStaleHosts() {
-    final threshold = DateTime.now().subtract(const Duration(seconds: 12));
+    final threshold = DateTime.now().subtract(const Duration(seconds: 15));
     if (mounted) {
       setState(() {
         _discoveredHosts.removeWhere((d) => d.lastSeen.isBefore(threshold));
@@ -342,7 +354,33 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
       });
 
       final bytes = utf8.encode(message);
-      _streamDiscoverySocket!.send(bytes, InternetAddress('255.255.255.255'), 8085);
+
+      // Global broadcast
+      try {
+        _streamDiscoverySocket?.send(bytes, InternetAddress('255.255.255.255'), 8085);
+      } catch (_) {}
+
+      // Multicast
+      try {
+        _streamDiscoverySocket?.send(bytes, InternetAddress('239.255.255.250'), 8085);
+      } catch (_) {}
+
+      // Subnet broadcasts
+      final interfaces = await NetworkInterface.list();
+      for (var iface in interfaces) {
+        if (iface.name.toLowerCase().contains('lo')) continue;
+        for (var addr in iface.addresses) {
+          if (addr.type == InternetAddressType.IPv4) {
+            final parts = addr.address.split('.');
+            if (parts.length == 4) {
+              final subnet = parts.sublist(0, 3).join('.');
+              try {
+                _streamDiscoverySocket?.send(bytes, InternetAddress('$subnet.255'), 8085);
+              } catch (_) {}
+            }
+          }
+        }
+      }
     } catch (_) {}
   }
 
@@ -356,8 +394,131 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       });
       final bytes = utf8.encode(message);
-      _streamDiscoverySocket!.send(bytes, InternetAddress('255.255.255.255'), 8085);
+
+      // Global broadcast
+      try {
+        _streamDiscoverySocket?.send(bytes, InternetAddress('255.255.255.255'), 8085);
+      } catch (_) {}
+
+      // Multicast
+      try {
+        _streamDiscoverySocket?.send(bytes, InternetAddress('239.255.255.250'), 8085);
+      } catch (_) {}
+
+      // Subnet broadcasts
+      final interfaces = await NetworkInterface.list();
+      for (var iface in interfaces) {
+        if (iface.name.toLowerCase().contains('lo')) continue;
+        for (var addr in iface.addresses) {
+          if (addr.type == InternetAddressType.IPv4) {
+            final parts = addr.address.split('.');
+            if (parts.length == 4) {
+              final subnet = parts.sublist(0, 3).join('.');
+              try {
+                _streamDiscoverySocket?.send(bytes, InternetAddress('$subnet.255'), 8085);
+              } catch (_) {}
+            }
+          }
+        }
+      }
     } catch (_) {}
+
+    // Run TCP subnet scanner fallback if not streaming
+    if (!_isStreaming && !_isTcpScanning) {
+      _checkDirectStreamTCPConnections();
+    }
+  }
+
+  Future<void> _checkDirectStreamTCPConnections() async {
+    if (_isTcpScanning) return;
+    _isTcpScanning = true;
+    try {
+      final interfaces = await NetworkInterface.list();
+      final localIps = interfaces
+          .expand((i) => i.addresses)
+          .map((a) => a.address)
+          .toSet();
+      localIps.addAll(['127.0.0.1', '::1']);
+
+      for (var interface in interfaces) {
+        if (interface.name.toLowerCase().contains('lo')) continue;
+        for (var addr in interface.addresses) {
+          if (addr.type == InternetAddressType.IPv4 &&
+              !addr.address.startsWith('127.') &&
+              !addr.address.startsWith('169.254.')) {
+            final parts = addr.address.split('.');
+            if (parts.length == 4) {
+              final prefix = parts.sublist(0, 3).join('.');
+              final currentOctet = int.tryParse(parts[3]) ?? 1;
+
+              final prioritySet = <int>{};
+              prioritySet.add(1); // Gateway
+              for (int delta = 1; delta <= 20; delta++) {
+                if (currentOctet - delta >= 1) prioritySet.add(currentOctet - delta);
+                if (currentOctet + delta <= 254) prioritySet.add(currentOctet + delta);
+              }
+              for (int i = 1; i <= 254; i++) {
+                prioritySet.add(i);
+              }
+
+              final ipsToScan = prioritySet
+                  .map((i) => '$prefix.$i')
+                  .where((ip) => !localIps.contains(ip))
+                  .toList();
+
+              const int chunkSize = 30;
+              for (int j = 0; j < ipsToScan.length; j += chunkSize) {
+                if (!mounted) break;
+                final end = (j + chunkSize < ipsToScan.length)
+                    ? j + chunkSize
+                    : ipsToScan.length;
+                final chunk = ipsToScan.sublist(j, end);
+                await Future.wait(
+                  chunk.map((ip) => _probeStreamHostTcp(ip)),
+                );
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {
+    } finally {
+      _isTcpScanning = false;
+    }
+  }
+
+  Future<void> _probeStreamHostTcp(String ip) async {
+    final client = HttpClient()..connectionTimeout = const Duration(milliseconds: 450);
+    try {
+      final request = await client.getUrl(Uri.parse('http://$ip:$_serverPort/api/stream/info'));
+      final response = await request.close().timeout(const Duration(milliseconds: 600));
+      if (response.statusCode == 200) {
+        final body = await response.transform(utf8.decoder).join();
+        final data = json.decode(body) as Map<String, dynamic>;
+        final deviceName = data['deviceName'] as String? ?? 'SpeedShare Stream Host';
+        final hasCode = data['hasAccessCode'] as bool? ?? false;
+        final mediaCount = data['mediaCount'] as int? ?? 0;
+
+        final host = StreamDevice(
+          name: deviceName,
+          ip: ip,
+          port: _serverPort,
+          hasAccessCode: hasCode,
+          mediaCount: mediaCount,
+          lastSeen: DateTime.now(),
+        );
+
+        if (mounted) {
+          setState(() {
+            _discoveredHosts.removeWhere((d) => d.ip == ip);
+            _discoveredHosts.add(host);
+          });
+        }
+      }
+    } catch (_) {
+    } finally {
+      client.close(force: true);
+    }
   }
 
   Future<void> _sendStreamGoodbye() async {
@@ -368,7 +529,13 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       });
       final bytes = utf8.encode(message);
-      _streamDiscoverySocket!.send(bytes, InternetAddress('255.255.255.255'), 8085);
+
+      try {
+        _streamDiscoverySocket?.send(bytes, InternetAddress('255.255.255.255'), 8085);
+      } catch (_) {}
+      try {
+        _streamDiscoverySocket?.send(bytes, InternetAddress('239.255.255.250'), 8085);
+      } catch (_) {}
     } catch (_) {}
   }
 
