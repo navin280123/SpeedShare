@@ -124,13 +124,14 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get install -y \
             clang \
             cmake \
             ninja-build \
             pkg-config \
             libgtk-3-dev \
             liblzma-dev \
+            libunwind-dev \
             libgstreamer1.0-dev \
             libgstreamer-plugins-base1.0-dev \
             gstreamer1.0-plugins-base \
