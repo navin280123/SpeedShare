@@ -7,6 +7,7 @@ import 'package:speedsharemob/main.dart';
 import 'package:speedsharemob/DeveloperDetailsScreen.dart';
 import 'package:speedsharemob/DeviceNameManager.dart';
 import 'package:speedsharemob/SpeedShareAppBar.dart';
+import 'package:speedsharemob/NetworkSettingsHelper.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -406,6 +407,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           _buildPortSettingTile(isDark),
                         ],
                       ),
+
+                      if (Platform.isAndroid || Platform.isIOS) ...[
+                        const SizedBox(height: 16),
+                        _buildSectionCard(
+                          title: 'Background & Battery',
+                          icon: Icons.battery_charging_full_rounded,
+                          children: [
+                            _buildBatteryOptimizationTile(isDark),
+                          ],
+                        ),
+                      ],
 
                       const SizedBox(height: 16),
 
@@ -855,6 +867,111 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBatteryOptimizationTile(bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.grey[800] : Colors.grey[100],
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.battery_saver_rounded,
+                size: 20,
+                color: Color(0xFF2AB673),
+              ),
+            ),
+            const SizedBox(width: 14),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Unrestricted Battery Mode',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'Prevent transfers from pausing when screen turns off',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF4E6AF3).withValues(alpha: 0.07),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: const Color(0xFF4E6AF3).withValues(alpha: 0.2),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 16,
+                    color: Color(0xFF4E6AF3),
+                  ),
+                  SizedBox(width: 6),
+                  Text(
+                    'Screen-Off Interruption Warning',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF4E6AF3),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'When the phone screen turns off, aggressive battery savers pause background network sockets (Doze Mode). Setting SpeedShare battery to "Unrestricted" ensures continuous background transfers, folder sync, and media streaming.',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => NetworkSettingsHelper.openBatteryOptimizationSettings(
+                    context: context,
+                  ),
+                  icon: const Icon(Icons.bolt_rounded, size: 16),
+                  label: const Text('Set Battery to Unrestricted'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF4E6AF3),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );

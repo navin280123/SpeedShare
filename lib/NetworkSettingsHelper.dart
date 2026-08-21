@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:app_settings/app_settings.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class NetworkSettingsHelper {
@@ -185,4 +186,58 @@ class NetworkSettingsHelper {
     }
     return false;
   }
+
+  /// Opens Battery Optimization / Background execution settings on Android/mobile.
+  static Future<bool> openBatteryOptimizationSettings({BuildContext? context}) async {
+    try {
+      if (Platform.isAndroid) {
+        try {
+          final status = await Permission.ignoreBatteryOptimizations.status;
+          if (!status.isGranted) {
+            final res = await Permission.ignoreBatteryOptimizations.request();
+            if (res.isGranted) {
+              if (context != null && context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Unrestricted battery optimization enabled for SpeedShare!'),
+                    backgroundColor: Color(0xFF2AB673),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+              return true;
+            }
+          }
+        } catch (_) {}
+
+        try {
+          await AppSettings.openAppSettings(type: AppSettingsType.batteryOptimization);
+          return true;
+        } catch (_) {
+          try {
+            await AppSettings.openAppSettings(type: AppSettingsType.settings);
+            return true;
+          } catch (_) {}
+        }
+      } else if (Platform.isIOS) {
+        try {
+          await AppSettings.openAppSettings(type: AppSettingsType.settings);
+          return true;
+        } catch (_) {}
+      }
+    } catch (e) {
+      debugPrint('Error opening battery optimization settings: $e');
+    }
+
+    if (context != null && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Open Settings > Apps > SpeedShare > Battery and choose "Unrestricted".'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+    return false;
+  }
 }
+

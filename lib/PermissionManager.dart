@@ -60,6 +60,13 @@ class PermissionManager {
                   description:
                       'Used to select files to send and save received files directly to your Downloads folder.',
                 ),
+                const SizedBox(height: 12),
+                _buildRationaleTile(
+                  icon: Icons.battery_charging_full_rounded,
+                  title: 'Unrestricted Battery (Recommended)',
+                  description:
+                      'Prevents the OS from pausing transfers, sync, or live streams when the phone screen is turned off or locked.',
+                ),
                 const SizedBox(height: 16),
                 Container(
                   padding: const EdgeInsets.all(10),
