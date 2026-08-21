@@ -951,6 +951,24 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
     }
   }
 
+  void _disconnectFromHost() {
+    if (_currentAudioItem != null && !_isStreaming) {
+      _audioPlayer.stop();
+      setState(() {
+        _currentAudioItem = null;
+        _isAudioPlaying = false;
+      });
+    }
+    setState(() {
+      _connectedDevice = null;
+      _devicePin = null;
+      _remoteCatalog = [];
+      _searchQuery = '';
+      _selectedCategoryFilter = 'All';
+    });
+    _showSnackBar('Disconnected from host');
+  }
+
   void _playMediaItem(StreamMediaItem item, {bool isLocalHost = false}) {
     if (item.type == StreamMediaType.audio) {
       _startAudioStream(item, isLocalHost: isLocalHost);
@@ -1049,16 +1067,6 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
       appBar: SpeedShareAppBar(
         title: 'SpeedShare Stream',
         subtitle: _activeTab == StreamTabMode.stream ? 'Host Media Live' : 'Stream Media Direct',
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded),
-            tooltip: 'Rescan Hosts',
-            onPressed: () {
-              _sendStreamProbe();
-              if (_connectedDevice != null) _fetchHostCatalog();
-            },
-          ),
-        ],
       ),
       body: Column(
         children: [
@@ -1180,11 +1188,18 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
       return _buildRemoteCatalogView();
     }
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    return RefreshIndicator(
+      onRefresh: () async {
+        _sendStreamProbe();
+        await Future.delayed(const Duration(milliseconds: 600));
+      },
+      color: const Color(0xFF4E6AF3),
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           // Header Card
           Card(
             elevation: 2,
@@ -1298,8 +1313,9 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
           ],
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildHostCard(StreamDevice host) {
     return Card(
@@ -1451,7 +1467,7 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
       children: [
         // Connected Host Header Card
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
             color: Theme.of(context).brightness == Brightness.dark
                 ? Colors.grey[900]
@@ -1460,12 +1476,15 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
           ),
           child: Row(
             children: [
-              IconButton(
-                icon: const Icon(Icons.arrow_back_rounded),
-                onPressed: () => setState(() => _connectedDevice = null),
-                tooltip: 'Back to Hosts',
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2AB673).withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.wifi_tethering_rounded, color: Color(0xFF2AB673), size: 20),
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1477,16 +1496,24 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                       overflow: TextOverflow.ellipsis,
                     ),
                     Text(
-                      '${_remoteCatalog.length} media items available for live streaming',
+                      '${_remoteCatalog.length} media items • Swipe down to refresh',
                       style: const TextStyle(fontSize: 11, color: Colors.grey),
                     ),
                   ],
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.refresh_rounded),
-                tooltip: 'Refresh Catalog',
-                onPressed: _fetchHostCatalog,
+              OutlinedButton.icon(
+                onPressed: _disconnectFromHost,
+                icon: const Icon(Icons.link_off_rounded, size: 16, color: Colors.redAccent),
+                label: const Text(
+                  'Disconnect',
+                  style: TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.4)),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
               ),
             ],
           ),
@@ -1532,35 +1559,52 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
           ),
         ),
 
-        // Catalog List
+        // Catalog List with Pull to Refresh
         Expanded(
-          child: _isLoadingCatalog
-              ? const Center(child: CircularProgressIndicator())
-              : filtered.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.video_library_rounded, size: 50, color: Colors.grey[400]),
-                          const SizedBox(height: 12),
-                          Text(
-                            _searchQuery.isNotEmpty
-                                ? 'No matching media found'
-                                : 'No media shared by host',
-                            style: const TextStyle(color: Colors.grey, fontSize: 14),
+          child: RefreshIndicator(
+            onRefresh: _fetchHostCatalog,
+            color: const Color(0xFF4E6AF3),
+            child: _isLoadingCatalog
+                ? const Center(child: CircularProgressIndicator())
+                : filtered.isEmpty
+                    ? CustomScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        slivers: [
+                          SliverFillRemaining(
+                            child: Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.video_library_rounded, size: 50, color: Colors.grey[400]),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    _searchQuery.isNotEmpty
+                                        ? 'No matching media found'
+                                        : 'No media shared by host',
+                                    style: const TextStyle(color: Colors.grey, fontSize: 14),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  const Text(
+                                    'Swipe down to refresh catalog',
+                                    style: TextStyle(color: Colors.grey, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ],
+                      )
+                    : ListView.builder(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        itemCount: filtered.length,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                        itemBuilder: (context, index) {
+                          final item = filtered[index];
+                          final isPlayingThis = _currentAudioItem?.id == item.id;
+                          return _buildMediaItemTile(item, isPlayingThis: isPlayingThis);
+                        },
                       ),
-                    )
-                  : ListView.builder(
-                      itemCount: filtered.length,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                      itemBuilder: (context, index) {
-                        final item = filtered[index];
-                        final isPlayingThis = _currentAudioItem?.id == item.id;
-                        return _buildMediaItemTile(item, isPlayingThis: isPlayingThis);
-                      },
-                    ),
+          ),
         ),
       ],
     );
