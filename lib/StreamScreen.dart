@@ -1352,10 +1352,6 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                 _buildBadge(Icons.audiotrack_rounded, '${host.audioCount} Songs', const Color(0xFF4E6AF3)),
                 const SizedBox(width: 6),
                 _buildBadge(Icons.videocam_rounded, '${host.videoCount} Videos', const Color(0xFF2AB673)),
-                if (host.hasAccessCode) ...[
-                  const SizedBox(width: 6),
-                  _buildBadge(Icons.lock_rounded, 'PIN Protected', Colors.amber),
-                ],
               ],
             ),
           ],
