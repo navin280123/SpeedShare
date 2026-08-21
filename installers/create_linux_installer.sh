@@ -43,7 +43,7 @@ Maintainer: Navin Kumar Verma <navin280123@github.com>
 Description: Speed Share - High-speed local network file sharing and storage sync.
 Section: utils
 Priority: optional
-Depends: libc6, libgtk-3-0, libglib2.0-0
+Depends: libc6, libgtk-3-0, libglib2.0-0, libgstreamer1.0-0, libgstreamer-plugins-base1.0-0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good
 EOT
 
 # 2. Create launcher wrapper script
