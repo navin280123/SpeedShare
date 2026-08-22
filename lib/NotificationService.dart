@@ -18,7 +18,7 @@ class NotificationService {
 
     try {
       // Android setup
-      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const androidSettings = AndroidInitializationSettings('@mipmap/launcher_icon');
 
       // iOS & macOS setup
       const darwinSettings = DarwinInitializationSettings(
@@ -28,11 +28,12 @@ class NotificationService {
       );
 
       // Linux setup
-      const linuxSettings = LinuxInitializationSettings(
+      final linuxSettings = LinuxInitializationSettings(
         defaultActionName: 'Open SpeedShare',
+        defaultIcon: AssetsLinuxIcon('assets/icon.png'),
       );
 
-      const initSettings = InitializationSettings(
+      final initSettings = InitializationSettings(
         android: androidSettings,
         iOS: darwinSettings,
         macOS: darwinSettings,
@@ -124,7 +125,7 @@ class NotificationService {
         channelDescription: 'Notifications for completed file transfers',
         importance: Importance.high,
         priority: Priority.high,
-        icon: '@mipmap/ic_launcher',
+        icon: '@mipmap/launcher_icon',
       );
 
       const darwinDetails = DarwinNotificationDetails(
@@ -133,9 +134,11 @@ class NotificationService {
         presentSound: true,
       );
 
-      const linuxDetails = LinuxNotificationDetails();
+      final linuxDetails = LinuxNotificationDetails(
+        icon: AssetsLinuxIcon('assets/icon.png'),
+      );
 
-      const details = NotificationDetails(
+      final details = NotificationDetails(
         android: androidDetails,
         iOS: darwinDetails,
         macOS: darwinDetails,
