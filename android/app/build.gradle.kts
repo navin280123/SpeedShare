@@ -14,7 +14,7 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.navnit.speedshare"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 37
     ndkVersion = "27.0.12077973"
 
     compileOptions {
