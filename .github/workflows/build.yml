@@ -259,7 +259,7 @@ jobs:
       - name: Copy installer binaries into installers directory
         run: |
           mkdir -p installers
-          find download-artifacts -type f \( -name "*.apk" -o -name "*.exe" -o -name "*.deb" -o -name "*.dmg" -o -name "*.ipa" -o -name "*.msix" \) -exec cp {} installers/ \;
+          find download-artifacts -type f \( -name "*.apk" -o -name "*.exe" -o -name "*.deb" -o -name "*.dmg" -o -name "*.ipa" -o -name "*.msix" \) -exec cp -v {} installers/ \;
           ls -la installers/
 
       - name: Commit and push installers to main branch
