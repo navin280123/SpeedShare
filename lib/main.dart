@@ -40,6 +40,9 @@ class MyApp extends StatelessWidget {
           title: 'SpeedShare',
           theme: ThemeData(
             brightness: Brightness.light,
+            focusColor: const Color(0xFF4E6AF3).withValues(alpha: 0.25),
+            hoverColor: const Color(0xFF4E6AF3).withValues(alpha: 0.12),
+            highlightColor: const Color(0xFF4E6AF3).withValues(alpha: 0.18),
             colorScheme: ColorScheme.fromSeed(
               seedColor: const Color(0xFF4E6AF3),
               primary: const Color(0xFF4E6AF3),
@@ -71,6 +74,25 @@ class MyApp extends StatelessWidget {
                 ),
               ),
             ),
+            navigationRailTheme: NavigationRailThemeData(
+              indicatorColor: const Color(0xFF4E6AF3).withValues(alpha: 0.15),
+              indicatorShape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              selectedIconTheme: const IconThemeData(
+                color: Color(0xFF4E6AF3),
+                size: 26,
+              ),
+              selectedLabelTextStyle: const TextStyle(
+                color: Color(0xFF4E6AF3),
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Poppins',
+              ),
+              unselectedLabelTextStyle: TextStyle(
+                color: Colors.grey[600],
+                fontFamily: 'Poppins',
+              ),
+            ),
             scaffoldBackgroundColor: Colors.grey[50],
             appBarTheme: const AppBarTheme(
               backgroundColor: Colors.white,
@@ -98,6 +120,9 @@ class MyApp extends StatelessWidget {
           ),
       darkTheme: ThemeData(
         brightness: Brightness.dark,
+        focusColor: const Color(0xFF4E6AF3).withValues(alpha: 0.35),
+        hoverColor: const Color(0xFF4E6AF3).withValues(alpha: 0.15),
+        highlightColor: const Color(0xFF4E6AF3).withValues(alpha: 0.22),
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF4E6AF3),
           primary: const Color(0xFF4E6AF3),
@@ -127,6 +152,25 @@ class MyApp extends StatelessWidget {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
+          ),
+        ),
+        navigationRailTheme: NavigationRailThemeData(
+          indicatorColor: const Color(0xFF4E6AF3).withValues(alpha: 0.25),
+          indicatorShape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          selectedIconTheme: const IconThemeData(
+            color: Color(0xFF4E6AF3),
+            size: 26,
+          ),
+          selectedLabelTextStyle: const TextStyle(
+            color: Color(0xFF4E6AF3),
+            fontWeight: FontWeight.bold,
+            fontFamily: 'Poppins',
+          ),
+          unselectedLabelTextStyle: TextStyle(
+            color: Colors.grey[400],
+            fontFamily: 'Poppins',
           ),
         ),
         scaffoldBackgroundColor: const Color(0xFF121212),

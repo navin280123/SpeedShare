@@ -2296,6 +2296,7 @@ class _VideoStreamPlayerModalState extends State<VideoStreamPlayerModal> {
   bool _showControls = true;
   Timer? _hideControlsTimer;
   double _playbackSpeed = 1.0;
+  final FocusNode _videoFocusNode = FocusNode();
 
   @override
   void initState() {
@@ -2335,6 +2336,7 @@ class _VideoStreamPlayerModalState extends State<VideoStreamPlayerModal> {
 
   @override
   void dispose() {
+    _videoFocusNode.dispose();
     _hideControlsTimer?.cancel();
     _controller.dispose();
     super.dispose();
@@ -2366,163 +2368,207 @@ class _VideoStreamPlayerModalState extends State<VideoStreamPlayerModal> {
     _resetControlsTimer();
   }
 
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) {
+      final key = event.logicalKey;
+      if (key == LogicalKeyboardKey.select ||
+          key == LogicalKeyboardKey.enter ||
+          key == LogicalKeyboardKey.space ||
+          key == LogicalKeyboardKey.mediaPlayPause ||
+          key == LogicalKeyboardKey.mediaPlay ||
+          key == LogicalKeyboardKey.mediaPause) {
+        _togglePlayPause();
+        return KeyEventResult.handled;
+      } else if (key == LogicalKeyboardKey.arrowLeft ||
+          key == LogicalKeyboardKey.mediaRewind ||
+          key == LogicalKeyboardKey.mediaTrackPrevious) {
+        _seekRelative(-10);
+        setState(() => _showControls = true);
+        return KeyEventResult.handled;
+      } else if (key == LogicalKeyboardKey.arrowRight ||
+          key == LogicalKeyboardKey.mediaFastForward ||
+          key == LogicalKeyboardKey.mediaTrackNext) {
+        _seekRelative(10);
+        setState(() => _showControls = true);
+        return KeyEventResult.handled;
+      } else if (key == LogicalKeyboardKey.arrowUp ||
+          key == LogicalKeyboardKey.arrowDown) {
+        setState(() => _showControls = !_showControls);
+        if (_showControls) _resetControlsTimer();
+        return KeyEventResult.handled;
+      } else if (key == LogicalKeyboardKey.escape ||
+          key == LogicalKeyboardKey.goBack) {
+        Navigator.maybePop(context);
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: GestureDetector(
-          onTap: () {
-            setState(() => _showControls = !_showControls);
-            if (_showControls) _resetControlsTimer();
-          },
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              // Video Surface
-              Center(
-                child: _isInitialized
-                    ? AspectRatio(
-                        aspectRatio: _controller.value.aspectRatio,
-                        child: VideoPlayer(_controller),
-                      )
-                    : _hasError
-                        ? Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 50),
-                                const SizedBox(height: 14),
-                                const Text(
-                                  'Error streaming video format',
-                                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  _errorMessage,
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(color: Colors.grey, fontSize: 12),
-                                ),
-                              ],
-                            ),
-                          )
-                        : const CircularProgressIndicator(color: Color(0xFF4E6AF3)),
-              ),
+    return Focus(
+      focusNode: _videoFocusNode,
+      autofocus: true,
+      onKeyEvent: _handleKeyEvent,
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: SafeArea(
+          child: GestureDetector(
+            onTap: () {
+              setState(() => _showControls = !_showControls);
+              if (_showControls) _resetControlsTimer();
+            },
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                // Video Surface
+                Center(
+                  child: _isInitialized
+                      ? AspectRatio(
+                          aspectRatio: _controller.value.aspectRatio,
+                          child: VideoPlayer(_controller),
+                        )
+                      : _hasError
+                          ? Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 50),
+                                  const SizedBox(height: 14),
+                                  const Text(
+                                    'Error streaming video format',
+                                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    _errorMessage,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : const CircularProgressIndicator(color: Color(0xFF4E6AF3)),
+                ),
 
-              // Overlay Controls
-              if (_showControls && _isInitialized)
-                Container(
-                  color: Colors.black45,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      // Top Bar
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        child: Row(
+                // Overlay Controls
+                if (_showControls && _isInitialized)
+                  Container(
+                    color: Colors.black45,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // Top Bar
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          child: Row(
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+                                onPressed: () => Navigator.pop(context),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  widget.mediaItem.name,
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              PopupMenuButton<double>(
+                                icon: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white24,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text('${_playbackSpeed}x', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                                ),
+                                onSelected: (speed) {
+                                  _controller.setPlaybackSpeed(speed);
+                                  setState(() => _playbackSpeed = speed);
+                                },
+                                itemBuilder: (context) => [0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((s) => PopupMenuItem(
+                                  value: s,
+                                  child: Text('${s}x'),
+                                )).toList(),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // Center Play / Rewind / Fast-Forward
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             IconButton(
-                              icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-                              onPressed: () => Navigator.pop(context),
+                              icon: const Icon(Icons.replay_10_rounded, color: Colors.white, size: 36),
+                              onPressed: () => _seekRelative(-10),
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                widget.mediaItem.name,
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                            const SizedBox(width: 24),
+                            Container(
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF4E6AF3),
+                                shape: BoxShape.circle,
                               ),
-                            ),
-                            PopupMenuButton<double>(
-                              icon: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: Colors.white24,
-                                  borderRadius: BorderRadius.circular(8),
+                              child: IconButton(
+                                icon: Icon(
+                                  _controller.value.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                                  color: Colors.white,
+                                  size: 42,
                                 ),
-                                child: Text('${_playbackSpeed}x', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                                onPressed: _togglePlayPause,
                               ),
-                              onSelected: (speed) {
-                                _controller.setPlaybackSpeed(speed);
-                                setState(() => _playbackSpeed = speed);
-                              },
-                              itemBuilder: (context) => [0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((s) => PopupMenuItem(
-                                value: s,
-                                child: Text('${s}x'),
-                              )).toList(),
+                            ),
+                            const SizedBox(width: 24),
+                            IconButton(
+                              icon: const Icon(Icons.forward_10_rounded, color: Colors.white, size: 36),
+                              onPressed: () => _seekRelative(10),
                             ),
                           ],
                         ),
-                      ),
 
-                      // Center Play / Rewind / Fast-Forward
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.replay_10_rounded, color: Colors.white, size: 36),
-                            onPressed: () => _seekRelative(-10),
-                          ),
-                          const SizedBox(width: 24),
-                          Container(
-                            decoration: const BoxDecoration(
-                              color: Color(0xFF4E6AF3),
-                              shape: BoxShape.circle,
-                            ),
-                            child: IconButton(
-                              icon: Icon(
-                                _controller.value.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                                color: Colors.white,
-                                size: 42,
-                              ),
-                              onPressed: _togglePlayPause,
-                            ),
-                          ),
-                          const SizedBox(width: 24),
-                          IconButton(
-                            icon: const Icon(Icons.forward_10_rounded, color: Colors.white, size: 36),
-                            onPressed: () => _seekRelative(10),
-                          ),
-                        ],
-                      ),
-
-                      // Bottom Progress Bar & Scrubber
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          children: [
-                            VideoProgressIndicator(
-                              _controller,
-                              allowScrubbing: true,
-                              colors: const VideoProgressColors(
-                                playedColor: Color(0xFF4E6AF3),
-                                bufferedColor: Colors.white30,
-                                backgroundColor: Colors.white10,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  _formatDuration(_controller.value.position),
-                                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                        // Bottom Scrubber Bar
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              VideoProgressIndicator(
+                                _controller,
+                                allowScrubbing: true,
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                colors: const VideoProgressColors(
+                                  playedColor: Color(0xFF4E6AF3),
+                                  bufferedColor: Colors.white30,
+                                  backgroundColor: Colors.white10,
                                 ),
-                                Text(
-                                  _formatDuration(_controller.value.duration),
-                                  style: const TextStyle(color: Colors.white70, fontSize: 12),
-                                ),
-                              ],
-                            ),
-                          ],
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    _formatDuration(_controller.value.position),
+                                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                  ),
+                                  Text(
+                                    _formatDuration(_controller.value.duration),
+                                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
