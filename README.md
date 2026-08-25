@@ -27,6 +27,7 @@ Download pre-built binaries and installers directly for your platform:
 
 ## ✨ Features
 
+* **🎬 Direct Video & Audio Streaming:** Stream HD videos and high-fidelity audio directly across connected devices over the local network without waiting for full downloads. Includes integrated media players with dynamic seeking, playlist queueing, and smooth playback.
 * **🚀 Blazing-Fast Speeds:** Transfer large files, 4K videos, photos, and documents at maximum Wi-Fi bandwidth speeds, far outperforming Bluetooth.
 * **🌐 Zero Internet Required:** Operate entirely within your local network (off-grid). No third-party servers, cloud storage, or internet connections are used.
 * **📂 Remote Storage Browser & Sync:** Turn your device into a local storage server. Share specific directories and let authorized devices on the network browse, search, and download files using a secure 6-digit access code.
@@ -42,9 +43,9 @@ Download pre-built binaries and installers directly for your platform:
 
 Speed Share operates using peer-to-peer (P2P) local networking patterns:
 
-1. **Service Discovery (UDP Broadcast):** Devices announce their presence on the local subnet by broadcasting UDP packets (on port `8083`). This allows instances of Speed Share to automatically discover each other without manual IP entry.
-2. **File Server (HTTP Server):** When sharing files or directories, the sending device spins up a lightweight, local HTTP server (`HttpServer` from `dart:io` on port `8082` / `8080`).
-3. **File Transfer (HTTP Clients):** The receiving device requests the files via HTTP GET requests. High-speed streams pipe file bytes directly from host disk to receiver disk, showing real-time progress bars.
+1. **Service Discovery (UDP Broadcast):** Devices announce their presence on the local subnet by broadcasting UDP packets (on port `8083` / `8085` for streaming). This allows instances of Speed Share to automatically discover each other without manual IP entry.
+2. **File & Stream Server (HTTP Server):** When sharing files or streaming media, the sending device spins up a lightweight, local HTTP server (`HttpServer` from `dart:io` on port `8082` / `8080` / `8084`).
+3. **File Transfer & Media Streaming (HTTP Clients):** The receiving device requests the files or streams media via chunked HTTP range requests for instant seekable playback.
 
 ---
 
@@ -80,8 +81,12 @@ Ensure you have the Flutter SDK installed and configured on your machine.
 
 Release installers for all supported platforms can be generated using standard build tools:
 
-* **Android (Split APKs):**
+* **Android (App Bundle & Split APKs):**
   ```bash
+  # Google Play App Bundle (.aab)
+  flutter build appbundle --release
+
+  # Split APKs for direct installation
   flutter build apk --split-per-abi
   ```
 * **Windows (Setup .exe via Inno Setup):**
