@@ -15,7 +15,7 @@ flutter build linux --release
 APP_NAME="speedshare"
 VERSION=$(grep '^version: ' pubspec.yaml | sed 's/version: //' | cut -d '+' -f 1 | tr -d '[:space:]')
 if [ -z "$VERSION" ]; then
-  VERSION="1.1.0"
+  VERSION="1.1.1"
 fi
 DEB_DIR="installers"
 BUILD_DIR="build/linux/x64/release/bundle"
