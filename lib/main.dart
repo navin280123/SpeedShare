@@ -5,11 +5,13 @@ import 'package:speedsharemob/MainScreen.dart';
 import 'package:speedsharemob/PermissionManager.dart';
 import 'package:speedsharemob/NotificationService.dart';
 import 'package:speedsharemob/SharedContentService.dart';
+import 'package:speedsharemob/BackgroundService.dart';
 
 final ValueNotifier<bool> darkModeNotifier = ValueNotifier<bool>(false);
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  BackgroundService.initialize(); // Register foreground service notification channel
   await NotificationService().initialize();
   await SharedContentService().initialize(initialArgs: args);
   await PermissionManager().requestAppPermissions();

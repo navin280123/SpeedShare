@@ -31,6 +31,12 @@
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
                      tools:ignore="ScopedStorage" />
     
+    <!-- Foreground Service — keeps transfers/sync/stream alive when app is backgrounded -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Wakelock — keeps CPU alive during active transfers -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <!-- Google TV / Android TV compatibility declarations -->
     <uses-feature android:name="android.software.leanback" 
                   android:required="false" />
@@ -86,6 +92,7 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>
+                <category android:name="android.intent.category.HOME"/>
             </intent-filter>
             
             <!-- Intent filter for single file/text sharing -->
@@ -102,6 +109,12 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
+
+        <!-- flutter_foreground_task: foreground service that keeps networking alive in background -->
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
         
         <meta-data
             android:name="flutterEmbedding"

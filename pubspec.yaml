@@ -56,6 +56,8 @@ dependencies:
   app_settings: ^9.0.0
   audioplayers: ^6.8.1
   video_player: ^2.14.0
+  wakelock_plus: ^1.2.8
+  flutter_foreground_task: ^8.17.0
 
 dev_dependencies:
   flutter_test:

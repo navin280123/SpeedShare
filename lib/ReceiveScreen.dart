@@ -13,6 +13,7 @@ import 'package:speedsharemob/DeviceNameManager.dart';
 import 'package:speedsharemob/NetworkStatusWidget.dart';
 import 'package:speedsharemob/SpeedShareAppBar.dart';
 import 'package:speedsharemob/NotificationService.dart';
+import 'package:speedsharemob/BackgroundService.dart';
 
 class ReceiveScreen extends StatefulWidget {
   const ReceiveScreen({super.key});
@@ -376,8 +377,14 @@ class ReceiveScreenState extends State<ReceiveScreen>
         isReceivingAnimation = true;
       });
       _animationController.repeat(reverse: true);
-
       _startAnnouncing();
+
+      // Keep CPU awake and prevent Android from killing background networking
+      BackgroundService.start(
+        key: 'receive',
+        title: 'SpeedShare — Receiving',
+        body: 'Waiting for incoming files…',
+      );
 
       if (showNotification && mounted) {
         ScaffoldMessenger.of(context).clearSnackBars();
@@ -681,10 +688,14 @@ class ReceiveScreenState extends State<ReceiveScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.detached || state == AppLifecycleState.paused) {
+    // Only abort incomplete downloads when the app is truly killed (detached),
+    // NOT when it is merely paused (screen off / Home pressed).
+    // This lets receive operations survive backgrounding.
+    if (state == AppLifecycleState.detached) {
       if (_activeWrittenBytes < _activeExpectedFileSize) {
         _cleanupActiveDownload(deleteTempFile: true);
       }
+      BackgroundService.stop(key: 'receive');
     }
   }
 
@@ -695,6 +706,7 @@ class ReceiveScreenState extends State<ReceiveScreen>
     _discoverySocket?.close();
     _animationController.stop();
     _animationController.reset();
+    BackgroundService.stop(key: 'receive');
     setState(() {
       isReceiving = false;
       isReceivingAnimation = false;

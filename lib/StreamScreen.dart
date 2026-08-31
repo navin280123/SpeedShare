@@ -13,6 +13,7 @@ import 'package:video_player/video_player.dart';
 import 'package:speedsharemob/DeviceNameManager.dart';
 import 'package:speedsharemob/NetworkStatusWidget.dart';
 import 'package:speedsharemob/SpeedShareAppBar.dart';
+import 'package:speedsharemob/BackgroundService.dart';
 
 enum StreamTabMode { connect, stream }
 enum StreamMediaType { audio, video }
@@ -572,6 +573,13 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
 
       _pulseController.repeat(reverse: true);
       _sendStreamAnnouncement();
+
+      // Keep CPU awake and prevent Android from killing the stream in background
+      BackgroundService.start(
+        key: 'stream',
+        title: 'SpeedShare — Streaming',
+        body: 'Live media stream running on port $_serverPort',
+      );
       _showSnackBar('Live Media Stream started on port $_serverPort! PIN: $_accessCode');
     } catch (e) {
       // Fallback to random port if 8084 occupied
@@ -605,6 +613,7 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
         _isStreaming = false;
       });
 
+      BackgroundService.stop(key: 'stream');
       _pulseController.stop();
       _showSnackBar('Media streaming stopped');
     } catch (e) {

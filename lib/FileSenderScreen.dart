@@ -12,6 +12,7 @@ import 'package:speedsharemob/NetworkStatusWidget.dart';
 import 'package:speedsharemob/SpeedShareAppBar.dart';
 import 'package:speedsharemob/NotificationService.dart';
 import 'package:speedsharemob/SharedContentService.dart';
+import 'package:speedsharemob/BackgroundService.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 
 class FileSenderScreen extends StatefulWidget {
@@ -554,6 +555,11 @@ class FileSenderScreenState extends State<FileSenderScreen>
       );
 
       // Start the file transfer handshake for the first file
+      BackgroundService.start(
+        key: 'send',
+        title: 'SpeedShare — Sending',
+        body: 'Sending files to $deviceName…',
+      );
       _startFileTransfer();
     } catch (e) {
       if (mounted) {
@@ -885,6 +891,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
           _selectedFiles[_currentFileIndex].status = 'Failed';
           _isSending = false;
         });
+        BackgroundService.stop(key: 'send');
         ScaffoldMessenger.of(context).clearSnackBars();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -932,6 +939,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
         _isSending = false;
         _transferComplete = true;
         _progress = 1.0;
+        BackgroundService.stop(key: 'send');
         ScaffoldMessenger.of(context).clearSnackBars();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1037,11 +1045,15 @@ class FileSenderScreenState extends State<FileSenderScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.detached || state == AppLifecycleState.paused) {
+    // Only clean up when the app is truly being killed (detached).
+    // Do NOT close sockets on 'paused' (screen off / home pressed) —
+    // that would kill active transfers in the background.
+    if (state == AppLifecycleState.detached) {
       _scanTimer?.cancel();
       _discoveryTimer?.cancel();
       _discoverySocket?.close();
       socket?.close();
+      BackgroundService.stop(key: 'send');
     }
   }
 

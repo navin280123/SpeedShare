@@ -18,6 +18,7 @@ import 'package:speedsharemob/DeviceNameManager.dart';
 import 'package:speedsharemob/NetworkStatusWidget.dart';
 import 'package:speedsharemob/SpeedShareAppBar.dart';
 import 'package:speedsharemob/NotificationService.dart';
+import 'package:speedsharemob/BackgroundService.dart';
 
 enum SyncTabMode { connect, sync }
 
@@ -591,6 +592,13 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
       
       _pulseController.repeat(reverse: true);
       _sendSyncAnnouncement();
+
+      // Keep CPU awake and prevent Android from killing background networking
+      BackgroundService.start(
+        key: 'sync',
+        title: 'SpeedShare — Sync Active',
+        body: 'Sharing storage with nearby devices…',
+      );
       
       _showSuccessSnackBar('Storage sharing started with code: $_accessCode');
     } catch (e) {
@@ -639,6 +647,7 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
         _isStorageSharing = false;
       });
       
+      BackgroundService.stop(key: 'sync');
       _pulseController.stop();
       _showSuccessSnackBar('Storage sharing stopped');
     } catch (e) {
