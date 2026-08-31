@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:speedsharemob/MainScreen.dart';
@@ -20,7 +22,34 @@ void main(List<String> args) async {
   final bool darkMode = prefs.getBool('darkMode') ?? false;
   darkModeNotifier.value = darkMode;
 
+  // Bug 2: Clean up orphaned .speedshare_tmp files from any previous force-close
+  await _cleanOrphanedTempFiles(prefs);
+
   runApp(const MyApp());
+}
+
+/// Deletes any leftover .speedshare_tmp partial-download files.
+/// Called at startup so force-killed sessions never leave ghost files.
+Future<void> _cleanOrphanedTempFiles(SharedPreferences prefs) async {
+  try {
+    final String? savedPath = prefs.getString('downloadPath');
+    Directory dir;
+    if (savedPath != null && savedPath.trim().isNotEmpty) {
+      dir = Directory(savedPath.trim());
+    } else if (Platform.isAndroid) {
+      dir = Directory('/storage/emulated/0/Download/speedshare');
+    } else {
+      final base = await getApplicationDocumentsDirectory();
+      dir = Directory('${base.path}/speedshare');
+    }
+    if (await dir.exists()) {
+      await for (final entity in dir.list()) {
+        if (entity is File && entity.path.endsWith('.speedshare_tmp')) {
+          try { await entity.delete(); } catch (_) {}
+        }
+      }
+    }
+  } catch (_) {}
 }
 
 class MyApp extends StatelessWidget {

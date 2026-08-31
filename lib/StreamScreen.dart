@@ -578,7 +578,8 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
       BackgroundService.start(
         key: 'stream',
         title: 'SpeedShare — Streaming',
-        body: 'Live media stream running on port $_serverPort',
+        body: 'Live media stream · PIN: $_accessCode (Port $_serverPort)',
+        buttons: [BackgroundService.stopStreamButton],
       );
       _showSnackBar('Live Media Stream started on port $_serverPort! PIN: $_accessCode');
     } catch (e) {
@@ -594,6 +595,12 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
 
         _pulseController.repeat(reverse: true);
         _sendStreamAnnouncement();
+        BackgroundService.start(
+          key: 'stream',
+          title: 'SpeedShare — Streaming',
+          body: 'Live media stream · PIN: $_accessCode (Port $_serverPort)',
+          buttons: [BackgroundService.stopStreamButton],
+        );
         _showSnackBar('Stream started on port $_serverPort! PIN: $_accessCode');
       } catch (err) {
         _showSnackBar('Failed to start stream server: $err', isError: true);
@@ -637,6 +644,12 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
           );
         }
       });
+      final count = _connectedListeners.length;
+      BackgroundService.update(
+        title: 'SpeedShare — Streaming',
+        body: 'Live stream (Port $_serverPort) · $count active listener${count == 1 ? '' : 's'}',
+        buttons: [BackgroundService.stopStreamButton],
+      );
     }
   }
 

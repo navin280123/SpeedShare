@@ -597,7 +597,8 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
       BackgroundService.start(
         key: 'sync',
         title: 'SpeedShare — Sync Active',
-        body: 'Sharing storage with nearby devices…',
+        body: 'Storage sharing online · PIN: $_accessCode',
+        buttons: [BackgroundService.stopSyncButton],
       );
       
       _showSuccessSnackBar('Storage sharing started with code: $_accessCode');
@@ -672,6 +673,12 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
           );
         }
       });
+      final clientCount = _connectedClients.length;
+      BackgroundService.update(
+        title: 'SpeedShare — Sync Active',
+        body: 'PIN: $_accessCode · $clientCount connected client${clientCount == 1 ? '' : 's'}',
+        buttons: [BackgroundService.stopSyncButton],
+      );
     }
   }
 

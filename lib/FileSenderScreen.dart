@@ -52,6 +52,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
   List<ReceiverDevice> _filteredReceivers = [];
 
   String _userLogin = '';
+  bool _isPreparingFiles = false; // Bug 1: shown while large files are indexed
 
   @override
   void initState() {
@@ -559,6 +560,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
         key: 'send',
         title: 'SpeedShare — Sending',
         body: 'Sending files to $deviceName…',
+        buttons: [BackgroundService.cancelSendButton],
       );
       _startFileTransfer();
     } catch (e) {
@@ -604,36 +606,40 @@ class FileSenderScreenState extends State<FileSenderScreen>
       dialogTitle: 'Select files to send',
     );
     if (result != null && result.files.isNotEmpty) {
-      List<FileToSend> files = [];
-      int totalSize = 0;
-      for (var file in result.files) {
-        if (file.path != null) {
-          File fileData = File(file.path!);
-          String fileName =
-              file.path!.split(Platform.isWindows ? '\\' : '/').last;
-          int fileSize = fileData.lengthSync();
-          String fileType =
-              lookupMimeType(file.path!) ?? 'application/octet-stream';
-          files.add(
-            FileToSend(
-              file: fileData,
-              name: fileName,
-              size: fileSize,
-              type: fileType,
-              progress: 0.0,
-              bytesSent: 0,
-              status: 'Pending',
-            ),
-          );
-          totalSize += fileSize;
+      // Bug 1: show spinner while we stat potentially large files
+      if (mounted) setState(() => _isPreparingFiles = true);
+      try {
+        List<FileToSend> files = [];
+        int totalSize = 0;
+        for (var file in result.files) {
+          if (file.path != null) {
+            File fileData = File(file.path!);
+            String fileName =
+                file.path!.split(Platform.isWindows ? '\\' : '/').last;
+            int fileSize = await fileData.length(); // async — won't block UI
+            String fileType =
+                lookupMimeType(file.path!) ?? 'application/octet-stream';
+            files.add(
+              FileToSend(
+                file: fileData,
+                name: fileName,
+                size: fileSize,
+                type: fileType,
+                progress: 0.0,
+                bytesSent: 0,
+                status: 'Pending',
+              ),
+            );
+            totalSize += fileSize;
+          }
         }
+        _prepareFiles(files, totalSize);
+        _controller.reset();
+        _controller.forward();
+        if (mounted) setState(() => _currentStep = 2);
+      } finally {
+        if (mounted) setState(() => _isPreparingFiles = false);
       }
-      _prepareFiles(files, totalSize);
-      _controller.reset();
-      _controller.forward();
-      setState(() {
-        _currentStep = 2;
-      });
     }
   }
 
@@ -823,6 +829,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
       int lastProgressUpdate = 0;
       int bytesUnflushed = 0;
       DateTime lastStateUpdateTime = DateTime.now();
+      DateTime lastNotificationUpdateTime = DateTime.now();
       final int updateThreshold = (currentFile.size / 100).round().clamp(1, currentFile.size);
 
       // Stream the file in chunks instead of loading it all into memory
@@ -831,6 +838,16 @@ class FileSenderScreenState extends State<FileSenderScreen>
       await for (final chunk in fileStream) {
         if (socket == null) {
           throw Exception("Connection lost");
+        }
+
+        // Check if user tapped Cancel in notification
+        if (BackgroundService.isCancelled('send')) {
+          BackgroundService.clearCancel('send');
+          try {
+            socket?.destroy();
+          } catch (_) {}
+          socket = null;
+          throw Exception("Transfer cancelled by user");
         }
 
         // Send in sub-chunks if the stream chunk is larger than bufferSize
@@ -863,6 +880,20 @@ class FileSenderScreenState extends State<FileSenderScreen>
           });
           lastProgressUpdate = bytesSent;
           lastStateUpdateTime = now;
+        }
+
+        // Update foreground service notification progress every ~500ms
+        if (now.difference(lastNotificationUpdateTime).inMilliseconds >= 500) {
+          lastNotificationUpdateTime = now;
+          final pct = (bytesSent / currentFile.size * 100).clamp(0, 100).toStringAsFixed(0);
+          final fileCounter = _selectedFiles.length > 1
+              ? ' (${_currentFileIndex + 1}/${_selectedFiles.length})'
+              : '';
+          BackgroundService.update(
+            title: 'SpeedShare — Sending$fileCounter',
+            body: '${currentFile.name} · $pct% (${_formatFileSize(bytesSent)} of ${_formatFileSize(currentFile.size)})',
+            buttons: [BackgroundService.cancelSendButton],
+          );
         }
       }
 
@@ -952,25 +983,11 @@ class FileSenderScreenState extends State<FileSenderScreen>
             ),
             backgroundColor: const Color(0xFF2AB673),
             behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 3),
+            duration: const Duration(seconds: 3), // Bug 4: auto-dismiss after 3s
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10),
             ),
             margin: EdgeInsets.all(20),
-            action: SnackBarAction(
-              label: 'Send More',
-              textColor: Colors.white,
-              onPressed: () {
-                setState(() {
-                  _currentStep = 1;
-                  _filesSelected = false;
-                  _selectedFiles = [];
-                  _transferComplete = false;
-                  _totalFileSize = 0;
-                  _totalBytesSent = 0;
-                });
-              },
-            ),
           ),
         );
       } else {
@@ -1222,32 +1239,81 @@ class FileSenderScreenState extends State<FileSenderScreen>
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 800),
-            child: Column(
+            child: Stack(
               children: [
-            NetworkStatusWidget(
-              mode: NetworkWidgetMode.sender,
-              onRetry: startScanning,
-            ),
-            // Step indicator
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              height: 50,
-              child: Row(
-                children: [
-                  _buildStepItem(1, 'Select Files', _currentStep >= 1),
-                  _buildStepConnector(_currentStep >= 2),
-                  _buildStepItem(2, 'Select Receiver', _currentStep >= 2),
-                  _buildStepConnector(_currentStep >= 3),
-                  _buildStepItem(3, 'Transfer', _currentStep >= 3),
-                ],
-              ),
-            ),
+                Column(
+                  children: [
+                NetworkStatusWidget(
+                  mode: NetworkWidgetMode.sender,
+                  onRetry: startScanning,
+                ),
+                // Step indicator
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  height: 50,
+                  child: Row(
+                    children: [
+                      _buildStepItem(1, 'Select Files', _currentStep >= 1),
+                      _buildStepConnector(_currentStep >= 2),
+                      _buildStepItem(2, 'Select Receiver', _currentStep >= 2),
+                      _buildStepConnector(_currentStep >= 3),
+                      _buildStepItem(3, 'Transfer', _currentStep >= 3),
+                    ],
+                  ),
+                ),
 
-            // Main content area
-            Expanded(child: _buildCurrentStepContent()),
-          ],
-        ),
-        ),
+                // Main content area
+                Expanded(child: _buildCurrentStepContent()),
+              ],
+                ),
+                // Bug 1: Full-screen loading overlay while large files are being prepared
+                if (_isPreparingFiles)
+                  Container(
+                    color: Colors.black45,
+                    child: Center(
+                      child: Card(
+                        margin: const EdgeInsets.all(32),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 32,
+                            vertical: 28,
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircularProgressIndicator(
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Color(0xFF4E6AF3),
+                                ),
+                              ),
+                              SizedBox(height: 16),
+                              Text(
+                                'Preparing files…',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              SizedBox(height: 6),
+                              Text(
+                                'Reading file info, please wait',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -1700,7 +1766,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
 
           const SizedBox(height: 12),
 
-          // Status text
+          // Status text + refresh button (Bug 5)
           Row(
             children: [
               isScanning
@@ -1736,6 +1802,29 @@ class FileSenderScreenState extends State<FileSenderScreen>
                 ),
               ),
               const Spacer(),
+              // Bug 5: Refresh button visible when not scanning
+              if (!isScanning)
+                Tooltip(
+                  message: 'Refresh devices',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(20),
+                    onTap: () {
+                      setState(() => availableReceivers.clear());
+                      startScanning();
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Icon(
+                        Icons.refresh_rounded,
+                        size: 18,
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? Colors.grey[400]
+                            : Colors.grey[600],
+                      ),
+                    ),
+                  ),
+                ),
+              if (!isScanning) const SizedBox(width: 4),
               TextButton.icon(
                 onPressed: _showManualConnectDialog,
                 icon: const Icon(Icons.add_link_rounded, size: 16),

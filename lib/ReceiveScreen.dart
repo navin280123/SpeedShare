@@ -48,6 +48,11 @@ class ReceiveScreenState extends State<ReceiveScreen>
   int _activeWrittenBytes = 0;
   int _activeExpectedFileSize = 0;
 
+  // Bug 3: multi-file batch tracking
+  int _totalFilesInBatch = 0;
+  int _currentFileInBatch = 0;
+  Timer? _idleResetTimer; // Bug 4: auto-clear progress UI after completion
+
   // Animation controller
   late AnimationController _animationController;
   late Animation<double> _pulseAnimation;
@@ -384,6 +389,7 @@ class ReceiveScreenState extends State<ReceiveScreen>
         key: 'receive',
         title: 'SpeedShare — Receiving',
         body: 'Waiting for incoming files…',
+        buttons: [BackgroundService.cancelReceiveButton],
       );
 
       if (showNotification && mounted) {
@@ -417,6 +423,7 @@ class ReceiveScreenState extends State<ReceiveScreen>
         String expectedFileName = '';
         int writtenFileBytes = 0;
         DateTime lastProgressTime = DateTime.now();
+        DateTime lastNotificationUpdateTime = DateTime.now();
 
         client.listen((data) async {
           // Check for TCP discovery probe
@@ -456,8 +463,27 @@ class ReceiveScreenState extends State<ReceiveScreen>
               expectedFileSize = metadata['fileSize'];
               writtenFileBytes = 0;
               lastProgressTime = DateTime.now();
+              lastNotificationUpdateTime = DateTime.now();
               _activeExpectedFileSize = expectedFileSize;
               _activeWrittenBytes = 0;
+
+              // Bug 3: read batch info sent by FileSenderScreen
+              final totalFiles = (metadata['totalFiles'] as int?) ?? 1;
+              final fileIndex = (metadata['fileIndex'] as int?) ?? 0;
+              if (mounted) {
+                setState(() {
+                  _totalFilesInBatch = totalFiles;
+                  _currentFileInBatch = fileIndex + 1;
+                });
+              }
+
+              // Update notification with newly starting file
+              final batchInfo = _totalFilesInBatch > 1 ? ' ($_currentFileInBatch/$_totalFilesInBatch)' : '';
+              BackgroundService.update(
+                title: 'SpeedShare — Receiving$batchInfo',
+                body: '$expectedFileName · 0% (0 B of ${_formatFileSize(expectedFileSize)})',
+                buttons: [BackgroundService.cancelReceiveButton],
+              );
 
               if (mounted) {
                 setState(() {
@@ -515,6 +541,15 @@ class ReceiveScreenState extends State<ReceiveScreen>
               incomingBuffer.clear();
             }
           } else {
+            // Check if user tapped Cancel in notification
+            if (BackgroundService.isCancelled('receive')) {
+              BackgroundService.clearCancel('receive');
+              _cleanupActiveDownload(deleteTempFile: true);
+              try { client.destroy(); } catch (_) {}
+              stopReceiving();
+              return;
+            }
+
             // This is file data
             _activeSink?.add(data);
             writtenFileBytes += data.length;
@@ -531,6 +566,20 @@ class ReceiveScreenState extends State<ReceiveScreen>
                       : 0.0;
                 });
                 lastProgressTime = now;
+              }
+
+              // Update notification progress every ~500ms
+              if (now.difference(lastNotificationUpdateTime).inMilliseconds >= 500) {
+                lastNotificationUpdateTime = now;
+                final pct = expectedFileSize > 0
+                    ? (writtenFileBytes / expectedFileSize * 100).clamp(0, 100).toStringAsFixed(0)
+                    : '0';
+                final batchInfo = _totalFilesInBatch > 1 ? ' ($_currentFileInBatch/$_totalFilesInBatch)' : '';
+                BackgroundService.update(
+                  title: 'SpeedShare — Receiving$batchInfo',
+                  body: '$expectedFileName · $pct% (${_formatFileSize(writtenFileBytes)} of ${_formatFileSize(expectedFileSize)})',
+                  buttons: [BackgroundService.cancelReceiveButton],
+                );
               }
             }
 
@@ -608,6 +657,21 @@ class ReceiveScreenState extends State<ReceiveScreen>
               _finalDestinationPath = null;
               _activeWrittenBytes = 0;
               _activeExpectedFileSize = 0;
+
+              // Bug 4: schedule auto-reset of progress UI after 3s
+              _idleResetTimer?.cancel();
+              _idleResetTimer = Timer(const Duration(seconds: 3), () {
+                if (mounted) {
+                  setState(() {
+                    receivedFileName = '';
+                    fileSize = 0;
+                    bytesReceived = 0;
+                    progress = 0.0;
+                    _totalFilesInBatch = 0;
+                    _currentFileInBatch = 0;
+                  });
+                }
+              });
 
               if (mounted) {
                 setState(() {
@@ -949,6 +1013,7 @@ class ReceiveScreenState extends State<ReceiveScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _idleResetTimer?.cancel();
     _cleanupActiveDownload(deleteTempFile: true);
     _stopAnnouncing();
     _animationController.dispose();
@@ -1209,6 +1274,25 @@ class ReceiveScreenState extends State<ReceiveScreen>
                   'Current Transfer',
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
+                // Bug 3: show 'File X of Y' badge when batch > 1
+                if (_totalFilesInBatch > 1) ...([
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF4E6AF3).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      'File $_currentFileInBatch of $_totalFilesInBatch',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF4E6AF3),
+                      ),
+                    ),
+                  ),
+                ]),
               ],
             ),
 
