@@ -114,6 +114,7 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
   int _serverPort = 8084;
   String? _accessCode;
   bool _isStreaming = false;
+  bool _isLoadingMedia = false; // Issue 2: shown while indexing large files/folders
   final List<StreamMediaItem> _hostedMediaList = [];
   final Map<String, ConnectedStreamClient> _connectedListeners = {};
 
@@ -798,15 +799,22 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
       );
 
       if (result != null && result.files.isNotEmpty) {
-        for (var file in result.files) {
-          if (file.path != null && file.path!.isNotEmpty) {
-            _addFileToHostedMedia(file.path!);
+        // Issue 2: show loading while processing files
+        if (mounted) setState(() => _isLoadingMedia = true);
+        try {
+          for (var file in result.files) {
+            if (file.path != null && file.path!.isNotEmpty) {
+              _addFileToHostedMedia(file.path!);
+            }
           }
+        } finally {
+          if (mounted) setState(() => _isLoadingMedia = false);
         }
-        setState(() {});
+        if (mounted) setState(() {});
         if (_isStreaming) _sendStreamAnnouncement();
       }
     } catch (e) {
+      if (mounted) setState(() => _isLoadingMedia = false);
       _showSnackBar('Error picking files: $e', isError: true);
     }
   }
@@ -815,27 +823,34 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
     try {
       final selectedDirectory = await FilePicker.platform.getDirectoryPath();
       if (selectedDirectory != null) {
-        final dir = Directory(selectedDirectory);
-        final allowedExts = {
-          '.mp3', '.wav', '.aac', '.m4a', '.flac', '.ogg', '.wma', '.opus',
-          '.mp4', '.mkv', '.webm', '.mov', '.avi', '.wmv', '.3gp', '.m4v'
-        };
+        // Issue 2: show loading while scanning large folder tree
+        if (mounted) setState(() => _isLoadingMedia = true);
+        try {
+          final dir = Directory(selectedDirectory);
+          final allowedExts = {
+            '.mp3', '.wav', '.aac', '.m4a', '.flac', '.ogg', '.wma', '.opus',
+            '.mp4', '.mkv', '.webm', '.mov', '.avi', '.wmv', '.3gp', '.m4v'
+          };
 
-        int addedCount = 0;
-        await for (var entity in dir.list(recursive: true, followLinks: false)) {
-          if (entity is File) {
-            final ext = p.extension(entity.path).toLowerCase();
-            if (allowedExts.contains(ext)) {
-              _addFileToHostedMedia(entity.path);
-              addedCount++;
+          int addedCount = 0;
+          await for (var entity in dir.list(recursive: true, followLinks: false)) {
+            if (entity is File) {
+              final ext = p.extension(entity.path).toLowerCase();
+              if (allowedExts.contains(ext)) {
+                _addFileToHostedMedia(entity.path);
+                addedCount++;
+              }
             }
           }
+          if (mounted) setState(() {});
+          _showSnackBar('Added $addedCount media items from folder');
+          if (_isStreaming) _sendStreamAnnouncement();
+        } finally {
+          if (mounted) setState(() => _isLoadingMedia = false);
         }
-        setState(() {});
-        _showSnackBar('Added $addedCount media items from folder');
-        if (_isStreaming) _sendStreamAnnouncement();
       }
     } catch (e) {
+      if (mounted) setState(() => _isLoadingMedia = false);
       _showSnackBar('Error selecting folder: $e', isError: true);
     }
   }
@@ -1836,9 +1851,15 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: _pickMediaFiles,
-                  icon: const Icon(Icons.add_to_photos_rounded, size: 18),
-                  label: const Text('Add Files'),
+                  onPressed: _isLoadingMedia ? null : _pickMediaFiles,
+                  icon: _isLoadingMedia
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.add_to_photos_rounded, size: 18),
+                  label: Text(_isLoadingMedia ? 'Loading...' : 'Add Files'),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1848,9 +1869,15 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
               const SizedBox(width: 10),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: _pickMediaFolder,
-                  icon: const Icon(Icons.create_new_folder_rounded, size: 18),
-                  label: const Text('Add Folder'),
+                  onPressed: _isLoadingMedia ? null : _pickMediaFolder,
+                  icon: _isLoadingMedia
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.create_new_folder_rounded, size: 18),
+                  label: Text(_isLoadingMedia ? 'Scanning...' : 'Add Folder'),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1880,7 +1907,35 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
 
           const SizedBox(height: 8),
 
-          if (_hostedMediaList.isEmpty)
+          if (_isLoadingMedia)
+            Card(
+              elevation: 1,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(vertical: 36, horizontal: 16),
+                child: Center(
+                  child: Column(
+                    children: [
+                      CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF4E6AF3)),
+                      ),
+                      SizedBox(height: 16),
+                      Text(
+                        'Scanning media files…',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'Reading file info, please wait',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          else if (_hostedMediaList.isEmpty)
             Card(
               elevation: 1,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),

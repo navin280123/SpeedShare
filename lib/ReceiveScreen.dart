@@ -71,6 +71,13 @@ class ReceiveScreenState extends State<ReceiveScreen>
       CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
     );
 
+    // Issue 1: Listen for notification cancel button taps from the foreground service.
+    BackgroundService.onCancelRequested = (key) {
+      if (key == 'receive' && mounted) {
+        stopReceiving();
+      }
+    };
+
     _initializeAndAutoStart();
   }
 
@@ -752,10 +759,26 @@ class ReceiveScreenState extends State<ReceiveScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Only abort incomplete downloads when the app is truly killed (detached),
-    // NOT when it is merely paused (screen off / Home pressed).
-    // This lets receive operations survive backgrounding.
-    if (state == AppLifecycleState.detached) {
+    if (state == AppLifecycleState.paused) {
+      // Issue 3: App minimized — keep the server socket alive so incoming
+      // connections still work, but stop the foreground notification if we
+      // are NOT actively writing a file (i.e. idle / waiting).
+      if (_activeSink == null && isReceiving) {
+        BackgroundService.stop(key: 'receive');
+      }
+    } else if (state == AppLifecycleState.resumed) {
+      // Issue 3: App foregrounded again — if the server is still listening,
+      // restart the foreground service notification.
+      if (isReceiving) {
+        BackgroundService.start(
+          key: 'receive',
+          title: 'SpeedShare — Receiving',
+          body: 'Waiting for incoming files…',
+          buttons: [BackgroundService.cancelReceiveButton],
+        );
+      }
+    } else if (state == AppLifecycleState.detached) {
+      // App is truly killed — clean up any partial download.
       if (_activeWrittenBytes < _activeExpectedFileSize) {
         _cleanupActiveDownload(deleteTempFile: true);
       }
@@ -1012,6 +1035,10 @@ class ReceiveScreenState extends State<ReceiveScreen>
 
   @override
   void dispose() {
+    // Unregister cancel callback to avoid stale references
+    if (BackgroundService.onCancelRequested != null) {
+      BackgroundService.onCancelRequested = null;
+    }
     WidgetsBinding.instance.removeObserver(this);
     _idleResetTimer?.cancel();
     _cleanupActiveDownload(deleteTempFile: true);

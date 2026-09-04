@@ -1,8 +1,10 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:speedsharemob/main.dart';
 import 'package:speedsharemob/DeveloperDetailsScreen.dart';
 import 'package:speedsharemob/DeviceNameManager.dart';
@@ -25,6 +27,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool loading = true;
   bool saveHistory = true;
   String localIp = '';
+  bool _batteryOptimizationGranted = false; // Issue 4: track if already granted
   late TextEditingController _portController;
 
   @override
@@ -84,6 +87,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         speedsharePath = '${appDir.path}/speedshare';
       }
 
+      // Issue 4: check if battery optimization is already exempted
+      bool batteryGranted = false;
+      if (!kIsWeb && Platform.isAndroid) {
+        try {
+          batteryGranted = await Permission.ignoreBatteryOptimizations.isGranted;
+        } catch (_) {}
+      }
+
       setState(() {
         deviceName = loadedDeviceName;
         darkMode = prefs.getBool('darkMode') ?? false;
@@ -92,6 +103,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         downloadPath = prefs.getString('downloadPath') ?? speedsharePath;
         saveHistory = prefs.getBool('saveHistory') ?? true;
         _portController.text = port.toString();
+        _batteryOptimizationGranted = batteryGranted;
         loading = false;
       });
     } catch (e) {
@@ -884,28 +896,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 color: isDark ? Colors.grey[800] : Colors.grey[100],
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.battery_saver_rounded,
                 size: 20,
-                color: Color(0xFF2AB673),
+                // Issue 4: green if granted, default color otherwise
+                color: _batteryOptimizationGranted
+                    ? const Color(0xFF2AB673)
+                    : Colors.orange,
               ),
             ),
             const SizedBox(width: 14),
-            const Expanded(
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Unrestricted Battery Mode',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
+                  Row(
+                    children: [
+                      const Text(
+                        'Unrestricted Battery Mode',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                      // Issue 4: show granted badge
+                      if (_batteryOptimizationGranted) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2AB673).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.check_circle_rounded, size: 12, color: Color(0xFF2AB673)),
+                              SizedBox(width: 4),
+                              Text(
+                                'Active',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF2AB673),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
-                  SizedBox(height: 2),
+                  const SizedBox(height: 2),
                   Text(
-                    'Prevent transfers from pausing when screen turns off',
-                    style: TextStyle(
+                    _batteryOptimizationGranted
+                        ? 'SpeedShare runs freely in the background'
+                        : 'Prevent transfers from pausing when screen turns off',
+                    style: const TextStyle(
                       fontSize: 12,
                       color: Colors.grey,
                     ),
@@ -915,64 +962,76 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: const Color(0xFF4E6AF3).withValues(alpha: 0.07),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: const Color(0xFF4E6AF3).withValues(alpha: 0.2),
+        // Issue 4: only show the action box if NOT already granted
+        if (!_batteryOptimizationGranted) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF4E6AF3).withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFF4E6AF3).withValues(alpha: 0.2),
+              ),
             ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Row(
-                children: [
-                  Icon(
-                    Icons.info_outline_rounded,
-                    size: 16,
-                    color: Color(0xFF4E6AF3),
-                  ),
-                  SizedBox(width: 6),
-                  Text(
-                    'Screen-Off Interruption Warning',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline_rounded,
+                      size: 16,
                       color: Color(0xFF4E6AF3),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'When the phone screen turns off, aggressive battery savers pause background network sockets (Doze Mode). Setting SpeedShare battery to "Unrestricted" ensures continuous background transfers, folder sync, and media streaming.',
-                style: TextStyle(fontSize: 11, color: Colors.grey),
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () => NetworkSettingsHelper.openBatteryOptimizationSettings(
-                    context: context,
-                  ),
-                  icon: const Icon(Icons.bolt_rounded, size: 16),
-                  label: const Text('Set Battery to Unrestricted'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF4E6AF3),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+                    SizedBox(width: 6),
+                    Text(
+                      'Screen-Off Interruption Warning',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF4E6AF3),
+                      ),
                     ),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'When the phone screen turns off, aggressive battery savers pause background network sockets (Doze Mode). Setting SpeedShare battery to "Unrestricted" ensures continuous background transfers, folder sync, and media streaming.',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      await NetworkSettingsHelper.openBatteryOptimizationSettings(
+                        context: context,
+                      );
+                      // Re-check status after user returns from settings
+                      if (Platform.isAndroid) {
+                        try {
+                          final granted = await Permission.ignoreBatteryOptimizations.isGranted;
+                          if (mounted) setState(() => _batteryOptimizationGranted = granted);
+                        } catch (_) {}
+                      }
+                    },
+                    icon: const Icon(Icons.bolt_rounded, size: 16),
+                    label: const Text('Set Battery to Unrestricted'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4E6AF3),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+        ],
       ],
     );
   }
@@ -1038,27 +1097,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Center(
               child: Column(
                 children: [
+                  // Issue 5: Use actual SpeedShare logo instead of generic icon
                   Container(
-                    padding: const EdgeInsets.all(12),
+                    width: 72,
+                    height: 72,
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF4E6AF3), Color(0xFF2AB673)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      shape: BoxShape.circle,
+                      borderRadius: BorderRadius.circular(18),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFF4E6AF3).withValues(alpha: 0.3),
-                          blurRadius: 8,
-                          offset: const Offset(0, 3),
+                          color: const Color(0xFF4E6AF3).withValues(alpha: 0.25),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
                         ),
                       ],
                     ),
-                    child: const Icon(
-                      Icons.swap_horiz_rounded,
-                      size: 32,
-                      color: Colors.white,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: Image.asset(
+                        'assets/icon.png',
+                        width: 72,
+                        height: 72,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => Container(
+                          width: 72,
+                          height: 72,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF4E6AF3), Color(0xFF2AB673)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: const Icon(
+                            Icons.swap_horiz_rounded,
+                            size: 32,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 10),

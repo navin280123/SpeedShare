@@ -52,7 +52,8 @@ class FileSenderScreenState extends State<FileSenderScreen>
   List<ReceiverDevice> _filteredReceivers = [];
 
   String _userLogin = '';
-  bool _isPreparingFiles = false; // Bug 1: shown while large files are indexed
+  bool _isPreparingFiles = false; // shown while file metadata is being read
+  bool _isPickingFiles = false;   // shown during the file picker processing gap
 
   @override
   void initState() {
@@ -71,6 +72,41 @@ class FileSenderScreenState extends State<FileSenderScreen>
     _discoveryTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
       if (mounted) startScanning();
     });
+
+    // Issue 1: Listen for notification cancel button taps from the foreground service.
+    BackgroundService.onCancelRequested = (key) {
+      if (key == 'send' && mounted) {
+        // Cancel the current socket transfer
+        try {
+          socket?.destroy();
+        } catch (_) {}
+        socket = null;
+        BackgroundService.stop(key: 'send');
+        setState(() {
+          _isSending = false;
+          if (_currentFileIndex < _selectedFiles.length) {
+            _selectedFiles[_currentFileIndex].status = 'Cancelled';
+          }
+        });
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.cancel_rounded, color: Colors.white),
+                SizedBox(width: 10),
+                Text('Transfer cancelled'),
+              ],
+            ),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            margin: const EdgeInsets.all(20),
+          ),
+        );
+      }
+    };
 
     // Check if any files were shared/queued before this screen mounted
     final pending = SharedContentService().pendingFiles;
@@ -600,14 +636,29 @@ class FileSenderScreenState extends State<FileSenderScreen>
   }
 
   void _pickFile() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.any,
-      allowMultiple: true,
-      dialogTitle: 'Select files to send',
-    );
+    if (_isPickingFiles) return; // prevent double-tap
+    // Set _isPickingFiles BEFORE the await so the overlay shows immediately
+    // after the native picker closes (covers the processing gap).
+    if (mounted) setState(() => _isPickingFiles = true);
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        allowMultiple: true,
+        dialogTitle: 'Select files to send',
+      );
+    } finally {
+      // If no files selected, clear the picking state right away.
+      if (result == null || result.files.isEmpty) {
+        if (mounted) setState(() => _isPickingFiles = false);
+      }
+    }
     if (result != null && result.files.isNotEmpty) {
-      // Bug 1: show spinner while we stat potentially large files
-      if (mounted) setState(() => _isPreparingFiles = true);
+      // Transition from "picker processing" to "file metadata" loading state.
+      if (mounted) setState(() {
+        _isPickingFiles = false;
+        _isPreparingFiles = true;
+      });
       try {
         List<FileToSend> files = [];
         int totalSize = 0;
@@ -1076,6 +1127,8 @@ class FileSenderScreenState extends State<FileSenderScreen>
 
   @override
   void dispose() {
+    // Unregister cancel callback to avoid stale references
+    BackgroundService.onCancelRequested = null;
     _sharedFilesSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
@@ -1266,8 +1319,10 @@ class FileSenderScreenState extends State<FileSenderScreen>
                 Expanded(child: _buildCurrentStepContent()),
               ],
                 ),
-                // Bug 1: Full-screen loading overlay while large files are being prepared
-                if (_isPreparingFiles)
+                // Loading overlay: covers BOTH the picker-processing gap
+                // (_isPickingFiles) and the file-metadata reading phase
+                // (_isPreparingFiles) so the user never sees a frozen screen.
+                if (_isPickingFiles || _isPreparingFiles)
                   Container(
                     color: Colors.black45,
                     child: Center(
@@ -1276,31 +1331,35 @@ class FileSenderScreenState extends State<FileSenderScreen>
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
                         ),
-                        child: const Padding(
-                          padding: EdgeInsets.symmetric(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
                             horizontal: 32,
                             vertical: 28,
                           ),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              CircularProgressIndicator(
+                              const CircularProgressIndicator(
                                 valueColor: AlwaysStoppedAnimation<Color>(
                                   Color(0xFF4E6AF3),
                                 ),
                               ),
-                              SizedBox(height: 16),
+                              const SizedBox(height: 16),
                               Text(
-                                'Preparing files…',
-                                style: TextStyle(
+                                _isPreparingFiles
+                                    ? 'Preparing files\u2026'
+                                    : 'Processing selection\u2026',
+                                style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 16,
                                 ),
                               ),
-                              SizedBox(height: 6),
+                              const SizedBox(height: 6),
                               Text(
-                                'Reading file info, please wait',
-                                style: TextStyle(
+                                _isPreparingFiles
+                                    ? 'Reading file info, please wait'
+                                    : 'Receiving files from system picker',
+                                style: const TextStyle(
                                   fontSize: 13,
                                   color: Colors.grey,
                                 ),
@@ -1505,7 +1564,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
             ),
             const SizedBox(height: 32),
             ElevatedButton.icon(
-              onPressed: _pickFile,
+              onPressed: _isPickingFiles || _isPreparingFiles ? null : _pickFile,
               icon: const Icon(Icons.add_rounded),
               label: const Text('Browse Files'),
               style: ElevatedButton.styleFrom(
@@ -1577,7 +1636,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
                 ],
               ),
               TextButton.icon(
-                onPressed: _pickFile,
+                onPressed: _isPickingFiles || _isPreparingFiles ? null : _pickFile,
                 icon: const Icon(Icons.add_rounded, size: 18),
                 label: const Text('Add More', style: TextStyle(fontSize: 13)),
                 style: TextButton.styleFrom(
