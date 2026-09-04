@@ -788,8 +788,13 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
   // --- HOST MEDIA PICKER ---
 
   Future<void> _pickMediaFiles() async {
+    if (_isLoadingMedia) return; // prevent double-tap
+    // Set _isLoadingMedia BEFORE the await so the UI freezes immediately
+    // when a large selection is being processed by the native picker.
+    if (mounted) setState(() => _isLoadingMedia = true);
+    FilePickerResult? result;
     try {
-      final result = await FilePicker.platform.pickFiles(
+      result = await FilePicker.platform.pickFiles(
         allowMultiple: true,
         type: FileType.custom,
         allowedExtensions: [
@@ -797,61 +802,75 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
           'mp4', 'mkv', 'webm', 'mov', 'avi', 'wmv', '3gp', 'm4v'
         ],
       );
-
-      if (result != null && result.files.isNotEmpty) {
-        // Issue 2: show loading while processing files
-        if (mounted) setState(() => _isLoadingMedia = true);
-        try {
-          for (var file in result.files) {
-            if (file.path != null && file.path!.isNotEmpty) {
-              _addFileToHostedMedia(file.path!);
-            }
-          }
-        } finally {
-          if (mounted) setState(() => _isLoadingMedia = false);
-        }
-        if (mounted) setState(() {});
-        if (_isStreaming) _sendStreamAnnouncement();
-      }
     } catch (e) {
       if (mounted) setState(() => _isLoadingMedia = false);
       _showSnackBar('Error picking files: $e', isError: true);
+      return;
+    }
+
+    if (result == null || result.files.isEmpty) {
+      // User cancelled — clear state immediately
+      if (mounted) setState(() => _isLoadingMedia = false);
+      return;
+    }
+
+    // _isLoadingMedia stays true while we index file metadata
+    try {
+      for (var file in result.files) {
+        if (file.path != null && file.path!.isNotEmpty) {
+          _addFileToHostedMedia(file.path!);
+        }
+      }
+      if (mounted) setState(() {});
+      if (_isStreaming) _sendStreamAnnouncement();
+    } finally {
+      if (mounted) setState(() => _isLoadingMedia = false);
     }
   }
 
   Future<void> _pickMediaFolder() async {
+    if (_isLoadingMedia) return; // prevent double-tap
+    // Set _isLoadingMedia BEFORE the await so the UI shows loading immediately
+    // while the native folder picker dialog is open/processing.
+    if (mounted) setState(() => _isLoadingMedia = true);
+    String? selectedDirectory;
     try {
-      final selectedDirectory = await FilePicker.platform.getDirectoryPath();
-      if (selectedDirectory != null) {
-        // Issue 2: show loading while scanning large folder tree
-        if (mounted) setState(() => _isLoadingMedia = true);
-        try {
-          final dir = Directory(selectedDirectory);
-          final allowedExts = {
-            '.mp3', '.wav', '.aac', '.m4a', '.flac', '.ogg', '.wma', '.opus',
-            '.mp4', '.mkv', '.webm', '.mov', '.avi', '.wmv', '.3gp', '.m4v'
-          };
-
-          int addedCount = 0;
-          await for (var entity in dir.list(recursive: true, followLinks: false)) {
-            if (entity is File) {
-              final ext = p.extension(entity.path).toLowerCase();
-              if (allowedExts.contains(ext)) {
-                _addFileToHostedMedia(entity.path);
-                addedCount++;
-              }
-            }
-          }
-          if (mounted) setState(() {});
-          _showSnackBar('Added $addedCount media items from folder');
-          if (_isStreaming) _sendStreamAnnouncement();
-        } finally {
-          if (mounted) setState(() => _isLoadingMedia = false);
-        }
-      }
+      selectedDirectory = await FilePicker.platform.getDirectoryPath();
     } catch (e) {
       if (mounted) setState(() => _isLoadingMedia = false);
       _showSnackBar('Error selecting folder: $e', isError: true);
+      return;
+    }
+
+    if (selectedDirectory == null) {
+      // User cancelled — clear state immediately
+      if (mounted) setState(() => _isLoadingMedia = false);
+      return;
+    }
+
+    // _isLoadingMedia stays true while we scan the folder tree
+    try {
+      final dir = Directory(selectedDirectory);
+      final allowedExts = {
+        '.mp3', '.wav', '.aac', '.m4a', '.flac', '.ogg', '.wma', '.opus',
+        '.mp4', '.mkv', '.webm', '.mov', '.avi', '.wmv', '.3gp', '.m4v'
+      };
+
+      int addedCount = 0;
+      await for (var entity in dir.list(recursive: true, followLinks: false)) {
+        if (entity is File) {
+          final ext = p.extension(entity.path).toLowerCase();
+          if (allowedExts.contains(ext)) {
+            _addFileToHostedMedia(entity.path);
+            addedCount++;
+          }
+        }
+      }
+      if (mounted) setState(() {});
+      _showSnackBar('Added $addedCount media items from folder');
+      if (_isStreaming) _sendStreamAnnouncement();
+    } finally {
+      if (mounted) setState(() => _isLoadingMedia = false);
     }
   }
 
