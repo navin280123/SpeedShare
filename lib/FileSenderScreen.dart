@@ -650,15 +650,17 @@ class FileSenderScreenState extends State<FileSenderScreen>
     } finally {
       // If no files selected, clear the picking state right away.
       if (result == null || result.files.isEmpty) {
-        if (mounted) setState(() => _isPickingFiles = false);
+        if (mounted) { setState(() => _isPickingFiles = false); }
       }
     }
     if (result != null && result.files.isNotEmpty) {
       // Transition from "picker processing" to "file metadata" loading state.
-      if (mounted) setState(() {
-        _isPickingFiles = false;
-        _isPreparingFiles = true;
-      });
+      if (mounted) {
+        setState(() {
+          _isPickingFiles = false;
+          _isPreparingFiles = true;
+        });
+      }
       try {
         List<FileToSend> files = [];
         int totalSize = 0;
