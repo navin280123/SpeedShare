@@ -10,6 +10,8 @@ import 'package:path/path.dart' as p;
 import 'package:mime/mime.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:video_player/video_player.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:open_file/open_file.dart';
 import 'package:speedsharemob/DeviceNameManager.dart';
 import 'package:speedsharemob/NetworkStatusWidget.dart';
 import 'package:speedsharemob/SpeedShareAppBar.dart';
@@ -707,10 +709,14 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
       }
 
       // 3. Media Streaming Endpoint with Range / 206 Partial Content
-      if (uri.path == '/api/stream/media') {
+      if (uri.path == '/api/stream/media' || uri.path.startsWith('/api/stream/media/')) {
         final mediaId = uri.queryParameters['id'];
+        final pathFileName = uri.path.startsWith('/api/stream/media/')
+            ? Uri.decodeComponent(uri.path.substring('/api/stream/media/'.length))
+            : null;
         final item = _hostedMediaList.firstWhere(
-          (m) => m.id == mediaId,
+          (m) => (mediaId != null && m.id == mediaId) ||
+                 (pathFileName != null && m.name == pathFileName),
           orElse: () => StreamMediaItem(
             id: '',
             path: '',
@@ -1087,7 +1093,8 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
       videoUrl = item.path;
     } else {
       final codeParam = _devicePin != null ? '&code=$_devicePin' : '';
-      videoUrl = 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media?id=${item.id}$codeParam';
+      final encodedName = Uri.encodeComponent(item.name);
+      videoUrl = 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media/$encodedName?id=${item.id}$codeParam';
     }
 
     Navigator.push(
@@ -1725,23 +1732,84 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
             Text(_formatBytes(item.size), style: const TextStyle(fontSize: 11, color: Colors.grey)),
           ],
         ),
-        trailing: ElevatedButton.icon(
-          onPressed: () => _playMediaItem(item, isLocalHost: false),
-          icon: Icon(
-            isPlayingThis && _isAudioPlaying
-                ? Icons.pause_rounded
-                : Icons.play_arrow_rounded,
-            size: 18,
-          ),
-          label: Text(isPlayingThis && _isAudioPlaying ? 'Playing' : 'Stream'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: isPlayingThis ? const Color(0xFF2AB673) : const Color(0xFF4E6AF3),
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-          ),
-        ),
+        trailing: isAudio
+            ? ElevatedButton.icon(
+                onPressed: () => _playMediaItem(item, isLocalHost: false),
+                icon: Icon(
+                  isPlayingThis && _isAudioPlaying
+                      ? Icons.pause_rounded
+                      : Icons.play_arrow_rounded,
+                  size: 18,
+                ),
+                label: Text(isPlayingThis && _isAudioPlaying ? 'Playing' : 'Stream'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isPlayingThis ? const Color(0xFF2AB673) : const Color(0xFF4E6AF3),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+              )
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () => _playMediaItem(item, isLocalHost: false),
+                    icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                    label: const Text('Stream'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4E6AF3),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert_rounded, size: 20, color: Colors.grey),
+                    tooltip: 'Options',
+                    onSelected: (val) {
+                      final codeParam = _devicePin != null ? '&code=$_devicePin' : '';
+                      final encodedName = Uri.encodeComponent(item.name);
+                      final url = 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media/$encodedName?id=${item.id}$codeParam';
+
+                      if (val == 'external') {
+                        VideoStreamPlayerModal.openMediaInExternalPlayer(
+                          context: context,
+                          mediaItem: item,
+                          mediaUrl: url,
+                          isLocal: false,
+                        );
+                      } else if (val == 'copy') {
+                        Clipboard.setData(ClipboardData(text: url));
+                        _showSnackBar('Stream URL copied to clipboard');
+                      }
+                    },
+                    itemBuilder: (ctx) => [
+                      const PopupMenuItem(
+                        value: 'external',
+                        child: Row(
+                          children: [
+                            Icon(Icons.open_in_new_rounded, size: 18, color: Color(0xFF4E6AF3)),
+                            SizedBox(width: 8),
+                            Text('Play in VLC / External'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'copy',
+                        child: Row(
+                          children: [
+                            Icon(Icons.copy_rounded, size: 18, color: Colors.grey),
+                            SizedBox(width: 8),
+                            Text('Copy Stream URL'),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
       ),
     );
   }
@@ -2027,6 +2095,17 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                           tooltip: 'Preview',
                           onPressed: () => _playMediaItem(item, isLocalHost: true),
                         ),
+                        if (!isAudio)
+                          IconButton(
+                            icon: const Icon(Icons.open_in_new_rounded, size: 20, color: Color(0xFF2AB673)),
+                            tooltip: 'Play in VLC / External Player',
+                            onPressed: () => VideoStreamPlayerModal.openMediaInExternalPlayer(
+                              context: context,
+                              mediaItem: item,
+                              mediaUrl: item.path,
+                              isLocal: true,
+                            ),
+                          ),
                         IconButton(
                           icon: const Icon(Icons.close_rounded, size: 18, color: Colors.grey),
                           tooltip: 'Remove',
@@ -2380,6 +2459,126 @@ class VideoStreamPlayerModal extends StatefulWidget {
     this.isLocal = false,
   });
 
+  /// Static helper to launch video in external players (VLC, MX Player, etc.)
+  static Future<void> openMediaInExternalPlayer({
+    required BuildContext context,
+    required StreamMediaItem mediaItem,
+    required String mediaUrl,
+    required bool isLocal,
+  }) async {
+    try {
+      if (isLocal) {
+        final result = await OpenFile.open(mediaItem.path);
+        if (result.type != ResultType.done && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not open file: ${result.message}')),
+          );
+        }
+        return;
+      }
+
+      final uri = Uri.parse(mediaUrl);
+      bool launched = false;
+
+      // 1. Try launching directly with external player app
+      try {
+        launched = await launchUrl(uri, mode: LaunchMode.externalNonBrowserApplication);
+      } catch (_) {}
+
+      // 2. Try generic external application
+      if (!launched) {
+        try {
+          launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+        } catch (_) {}
+      }
+
+      // 3. Try VLC custom scheme: vlc://<url>
+      if (!launched) {
+        try {
+          final vlcUri = Uri.parse('vlc://$mediaUrl');
+          if (await canLaunchUrl(vlcUri)) {
+            launched = await launchUrl(vlcUri, mode: LaunchMode.externalApplication);
+          }
+        } catch (_) {}
+      }
+
+      if (!launched && context.mounted) {
+        showDialog(
+          context: context,
+          builder: (dialogCtx) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.video_library_rounded, color: Color(0xFF4E6AF3)),
+                SizedBox(width: 8),
+                Text('Open in External Player', style: TextStyle(fontSize: 16)),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'No compatible player was found to launch this stream automatically.',
+                  style: TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Copy the stream URL and paste it into VLC (Media > Open Network Stream):',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.black12,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: SelectableText(
+                    mediaUrl,
+                    style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: mediaUrl));
+                  Navigator.pop(dialogCtx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Stream URL copied to clipboard!')),
+                  );
+                },
+                child: const Text('Copy URL'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(dialogCtx);
+                  launchUrl(
+                    Uri.parse('market://details?id=org.videolan.vlc'),
+                    mode: LaunchMode.externalApplication,
+                  );
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF4E6AF3),
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Get VLC'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error launching player: $e')),
+        );
+      }
+    }
+  }
+
   @override
   State<VideoStreamPlayerModal> createState() => _VideoStreamPlayerModalState();
 }
@@ -2428,6 +2627,18 @@ class _VideoStreamPlayerModalState extends State<VideoStreamPlayerModal> {
         });
       }
     }
+  }
+
+  Future<void> _openExternalPlayer() async {
+    if (_isInitialized && _controller.value.isPlaying) {
+      _controller.pause();
+    }
+    await VideoStreamPlayerModal.openMediaInExternalPlayer(
+      context: context,
+      mediaItem: widget.mediaItem,
+      mediaUrl: widget.mediaUrl,
+      isLocal: widget.isLocal,
+    );
   }
 
   @override
@@ -2527,21 +2738,65 @@ class _VideoStreamPlayerModalState extends State<VideoStreamPlayerModal> {
                         )
                       : _hasError
                           ? Padding(
-                              padding: const EdgeInsets.all(24),
+                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 50),
+                                  const Icon(Icons.movie_filter_rounded, color: Colors.orangeAccent, size: 54),
                                   const SizedBox(height: 14),
                                   const Text(
-                                    'Error streaming video format',
-                                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                                    'Cannot Play Video In-App',
+                                    style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
                                   ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    _errorMessage,
+                                  const SizedBox(height: 8),
+                                  const Text(
+                                    'MKV containers or audio codecs (like Dolby AC3 / DTS) are not supported by Android\'s native player.\nPlay it with VLC or MX Player instead.',
                                     textAlign: TextAlign.center,
-                                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                                  ),
+                                  if (_errorMessage.isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      _errorMessage,
+                                      textAlign: TextAlign.center,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(color: Colors.white38, fontSize: 10),
+                                    ),
+                                  ],
+                                  const SizedBox(height: 20),
+                                  ElevatedButton.icon(
+                                    onPressed: _openExternalPlayer,
+                                    icon: const Icon(Icons.play_circle_fill_rounded, size: 20),
+                                    label: const Text('Play in VLC / External Player'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF4E6AF3),
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  OutlinedButton.icon(
+                                    onPressed: () {
+                                      Clipboard.setData(ClipboardData(text: widget.mediaUrl));
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Stream URL copied! Paste into VLC Network Stream.')),
+                                      );
+                                    },
+                                    icon: const Icon(Icons.copy_rounded, size: 16),
+                                    label: const Text('Copy Stream URL'),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.white70,
+                                      side: const BorderSide(color: Colors.white30),
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(context),
+                                    child: const Text('Close', style: TextStyle(color: Colors.grey)),
                                   ),
                                 ],
                               ),
@@ -2573,6 +2828,11 @@ class _VideoStreamPlayerModalState extends State<VideoStreamPlayerModal> {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.open_in_new_rounded, color: Colors.white),
+                                tooltip: 'Open in VLC / External Player',
+                                onPressed: _openExternalPlayer,
                               ),
                               PopupMenuButton<double>(
                                 icon: Container(
