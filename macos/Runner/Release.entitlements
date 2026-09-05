@@ -2,9 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Sandbox enabled -->
+	<!-- Sandbox disabled for direct distribution (DMG); set to true only for Mac App Store -->
 	<key>com.apple.security.app-sandbox</key>
-	<true/>
+	<false/>
 
 	<!-- Network: TCP/UDP server (ReceiveScreen binds ports 8080/8081/8082/8083) -->
 	<key>com.apple.security.network.server</key>
@@ -14,12 +14,20 @@
 	<key>com.apple.security.network.client</key>
 	<true/>
 
-	<!-- File access: read/write user Downloads (received files saved here) -->
+	<!-- File access: read/write user Downloads folder -->
 	<key>com.apple.security.files.downloads.read-write</key>
+	<true/>
+
+	<!-- File access: read/write user Documents folder -->
+	<key>com.apple.security.files.documents.read-write</key>
 	<true/>
 
 	<!-- File access: read/write user-selected files via file picker -->
 	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+
+	<!-- Retain access to user-selected folders across launches -->
+	<key>com.apple.security.files.bookmarks.app-scope</key>
 	<true/>
 </dict>
 </plist>

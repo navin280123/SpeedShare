@@ -115,6 +115,11 @@ class ReceiveScreenState extends State<ReceiveScreen>
           if (!await targetDirectory.exists()) {
             await targetDirectory.create(recursive: true);
           }
+          // Verify directory can actually be listed and written to without OS Error 1
+          await targetDirectory.list().take(1).toList();
+          final testFile = File('${targetDirectory.path}/.perm_test_${DateTime.now().millisecondsSinceEpoch}');
+          await testFile.writeAsString('ok');
+          await testFile.delete();
           speedsharePath = targetDirectory.path;
         } catch (e) {
           debugPrint('Custom download path inaccessible ($savedPath): $e');
@@ -124,6 +129,8 @@ class ReceiveScreenState extends State<ReceiveScreen>
           if (!await targetDirectory.exists()) {
             await targetDirectory.create(recursive: true);
           }
+          // Update prefs so broken path is corrected
+          await prefs.setString('downloadPath', speedsharePath);
         }
       } else {
         final defaultDir = await _getDefaultDownloadsDirectory();
@@ -162,6 +169,9 @@ class ReceiveScreenState extends State<ReceiveScreen>
 
   void _loadReceivedFiles(Directory directory) async {
     try {
+      if (!await directory.exists()) {
+        await directory.create(recursive: true);
+      }
       List<FileSystemEntity> allEntities = await directory.list().toList();
 
       // Clean up orphaned .speedshare_tmp files from previous killed sessions
@@ -201,6 +211,27 @@ class ReceiveScreenState extends State<ReceiveScreen>
       }
     } catch (e) {
       debugPrint('Error loading received files: $e');
+      // If permission denied or directory listing failed, fall back to safe default directory
+      try {
+        final fallbackDir = await _getDefaultDownloadsDirectory();
+        final safePath = '${fallbackDir.path}/speedshare';
+        final safeDir = Directory(safePath);
+        if (safeDir.path != directory.path) {
+          if (!await safeDir.exists()) {
+            await safeDir.create(recursive: true);
+          }
+          if (mounted) {
+            setState(() {
+              downloadDirectoryPath = safePath;
+            });
+          }
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('downloadPath', safePath);
+          _loadReceivedFiles(safeDir);
+        }
+      } catch (fallbackErr) {
+        debugPrint('Fallback directory loading failed: $fallbackErr');
+      }
     }
   }
 
@@ -501,6 +532,21 @@ class ReceiveScreenState extends State<ReceiveScreen>
                 });
               }
 
+              // Ensure download directory exists and is accessible
+              try {
+                final targetDir = Directory(downloadDirectoryPath);
+                if (!await targetDir.exists()) {
+                  await targetDir.create(recursive: true);
+                }
+              } catch (dirErr) {
+                debugPrint('Download dir error ($downloadDirectoryPath): $dirErr');
+                final fallbackDir = await _getDefaultDownloadsDirectory();
+                final safePath = '${fallbackDir.path}/speedshare';
+                final safeDir = Directory(safePath);
+                if (!await safeDir.exists()) await safeDir.create(recursive: true);
+                downloadDirectoryPath = safePath;
+              }
+
               // Compute target final path (with auto-renaming if file exists)
               String finalPath = '$downloadDirectoryPath/$expectedFileName';
               File targetFile = File(finalPath);
@@ -527,7 +573,20 @@ class ReceiveScreenState extends State<ReceiveScreen>
                 } catch (_) {}
               }
 
-              _activeSink = _activeTmpFile!.openWrite(mode: FileMode.write);
+              try {
+                _activeSink = _activeTmpFile!.openWrite(mode: FileMode.write);
+              } catch (sinkOpenErr) {
+                debugPrint('Failed to open sink on tmpPath ($tmpPath): $sinkOpenErr');
+                final fallbackDir = await _getDefaultDownloadsDirectory();
+                final safeDir = Directory('${fallbackDir.path}/speedshare');
+                if (!await safeDir.exists()) await safeDir.create(recursive: true);
+                downloadDirectoryPath = safeDir.path;
+                finalPath = '$downloadDirectoryPath/$expectedFileName';
+                tmpPath = '$finalPath.speedshare_tmp';
+                _finalDestinationPath = finalPath;
+                _activeTmpFile = File(tmpPath);
+                _activeSink = _activeTmpFile!.openWrite(mode: FileMode.write);
+              }
               receivingMetadata = false;
               client.write('READY_FOR_FILE_DATA');
 
@@ -592,70 +651,125 @@ class ReceiveScreenState extends State<ReceiveScreen>
 
             // File transfer complete
             if (writtenFileBytes >= expectedFileSize && expectedFileSize > 0) {
-              await _activeSink?.flush();
-              await _activeSink?.close();
+              if (mounted) {
+                setState(() {
+                  progress = 1.0;
+                  bytesReceived = expectedFileSize;
+                });
+              }
+
+              try {
+                await _activeSink?.flush();
+                await _activeSink?.close();
+              } catch (sinkErr) {
+                debugPrint('Error closing activeSink: $sinkErr');
+              }
               _activeSink = null;
 
               // Rename temporary file to final target filename
               String savedPath = _finalDestinationPath ?? '$downloadDirectoryPath/$expectedFileName';
+              bool saveSuccess = false;
               if (_activeTmpFile != null && await _activeTmpFile!.exists()) {
-                await _activeTmpFile!.rename(savedPath);
+                try {
+                  await _activeTmpFile!.rename(savedPath);
+                  saveSuccess = true;
+                } catch (renameErr) {
+                  debugPrint('Direct rename failed ($renameErr), trying copy + delete');
+                  try {
+                    await _activeTmpFile!.copy(savedPath);
+                    await _activeTmpFile!.delete();
+                    saveSuccess = true;
+                  } catch (copyErr) {
+                    debugPrint('Copy+delete also failed: $copyErr');
+                    // Fall back to saving in default downloads directory if permission failed
+                    try {
+                      final fallbackDir = await _getDefaultDownloadsDirectory();
+                      final safePath = '${fallbackDir.path}/speedshare/$expectedFileName';
+                      final safeDir = Directory('${fallbackDir.path}/speedshare');
+                      if (!await safeDir.exists()) await safeDir.create(recursive: true);
+                      await _activeTmpFile!.copy(safePath);
+                      await _activeTmpFile!.delete();
+                      savedPath = safePath;
+                      saveSuccess = true;
+                    } catch (e3) {
+                      debugPrint('Emergency fallback save failed: $e3');
+                    }
+                  }
+                }
               }
 
-              receivedFiles.insert(0, {
-                'name': expectedFileName,
-                'size': expectedFileSize,
-                'path': savedPath,
-                'date': DateTime.now().toString(),
-              });
+              if (saveSuccess) {
+                receivedFiles.insert(0, {
+                  'name': expectedFileName,
+                  'size': expectedFileSize,
+                  'path': savedPath,
+                  'date': DateTime.now().toString(),
+                });
 
-              NotificationService().showTransferCompletedNotification(
-                fileName: expectedFileName,
-                isReceived: true,
-              );
-
-              if (mounted) {
-                ScaffoldMessenger.of(context).clearSnackBars();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: LayoutBuilder(
-                      builder: (context, constraints) {
-                        bool isWide = constraints.maxWidth > 400;
-                        return Row(
-                          mainAxisAlignment: MainAxisAlignment.start,
-                          children: [
-                            const Icon(Icons.check_circle_rounded, color: Colors.white),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                'File received: $expectedFileName',
-                                overflow: TextOverflow.ellipsis,
-                                maxLines: isWide ? 2 : 1,
-                              ),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-                    backgroundColor: const Color(0xFF2AB673),
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    margin: const EdgeInsets.all(20),
-                    action: SnackBarAction(
-                      label: 'Open',
-                      textColor: Colors.white,
-                      onPressed: () {
-                        _openFile(savedPath);
-                      },
-                    ),
-                    duration: const Duration(seconds: 2, milliseconds: 500),
-                  ),
+                NotificationService().showTransferCompletedNotification(
+                  fileName: expectedFileName,
+                  isReceived: true,
                 );
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).clearSnackBars();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: LayoutBuilder(
+                        builder: (context, constraints) {
+                          bool isWide = constraints.maxWidth > 400;
+                          return Row(
+                            mainAxisAlignment: MainAxisAlignment.start,
+                            children: [
+                              const Icon(Icons.check_circle_rounded, color: Colors.white),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'File received: $expectedFileName',
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: isWide ? 2 : 1,
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                      backgroundColor: const Color(0xFF2AB673),
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      margin: const EdgeInsets.all(20),
+                      action: SnackBarAction(
+                        label: 'Open',
+                        textColor: Colors.white,
+                        onPressed: () {
+                          _openFile(savedPath);
+                        },
+                      ),
+                      duration: const Duration(seconds: 2, milliseconds: 500),
+                    ),
+                  );
+                }
+              } else {
+                debugPrint('Failed to save received file $expectedFileName');
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to save received file $expectedFileName'),
+                      backgroundColor: Colors.redAccent,
+                    ),
+                  );
+                }
               }
 
-              client.write('TRANSFER_COMPLETE');
+              try {
+                client.write('TRANSFER_COMPLETE');
+                await client.flush();
+              } catch (clientErr) {
+                debugPrint('Error sending TRANSFER_COMPLETE: $clientErr');
+              }
+
               receivedFile = null;
               receivingMetadata = true;
               metadataSize = 0;
@@ -668,7 +782,7 @@ class ReceiveScreenState extends State<ReceiveScreen>
               // Bug 4: schedule auto-reset of progress UI after 3s
               _idleResetTimer?.cancel();
               _idleResetTimer = Timer(const Duration(seconds: 3), () {
-                if (mounted) {
+                if (mounted && _activeSink == null) {
                   setState(() {
                     receivedFileName = '';
                     fileSize = 0;
