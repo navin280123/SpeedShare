@@ -1093,8 +1093,7 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
       videoUrl = item.path;
     } else {
       final codeParam = _devicePin != null ? '&code=$_devicePin' : '';
-      final encodedName = Uri.encodeComponent(item.name);
-      videoUrl = 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media/$encodedName?id=${item.id}$codeParam';
+      videoUrl = 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media?id=${item.id}$codeParam';
     }
 
     Navigator.push(
@@ -1770,8 +1769,7 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                     tooltip: 'Options',
                     onSelected: (val) {
                       final codeParam = _devicePin != null ? '&code=$_devicePin' : '';
-                      final encodedName = Uri.encodeComponent(item.name);
-                      final url = 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media/$encodedName?id=${item.id}$codeParam';
+                      final url = 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media?id=${item.id}$codeParam';
 
                       if (val == 'external') {
                         VideoStreamPlayerModal.openMediaInExternalPlayer(
