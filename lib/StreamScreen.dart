@@ -2477,31 +2477,65 @@ class VideoStreamPlayerModal extends StatefulWidget {
         return;
       }
 
-      final uri = Uri.parse(mediaUrl);
       bool launched = false;
 
-      // 1. Try launching directly with external player app
-      try {
-        launched = await launchUrl(uri, mode: LaunchMode.externalNonBrowserApplication);
-      } catch (_) {}
-
-      // 2. Try generic external application
-      if (!launched) {
+      // 1. macOS: launch VLC or IINA application directly
+      if (Platform.isMacOS) {
         try {
-          launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+          final res = await Process.run('open', ['-a', 'VLC', mediaUrl]);
+          if (res.exitCode == 0) return;
+        } catch (_) {}
+        try {
+          final res = await Process.run('open', ['-a', 'IINA', mediaUrl]);
+          if (res.exitCode == 0) return;
         } catch (_) {}
       }
 
-      // 3. Try VLC custom scheme: vlc://<url>
+      // 2. Windows: launch VLC command line
+      if (Platform.isWindows) {
+        try {
+          final res = await Process.run('cmd', ['/c', 'start', 'vlc', mediaUrl]);
+          if (res.exitCode == 0) return;
+        } catch (_) {}
+      }
+
+      // 3. Android: Use Android Intent URIs specifically typed as video/*
+      // This forces Android to target video players (VLC, MX Player) and NEVER browsers.
+      if (Platform.isAndroid) {
+        final urlNoHttp = mediaUrl.replaceFirst(RegExp(r'^https?:\/\/'), '');
+        final scheme = mediaUrl.startsWith('https://') ? 'https' : 'http';
+
+        // 3a. Target VLC for Android directly
+        try {
+          final vlcIntentUri = Uri.parse(
+            'intent://$urlNoHttp#Intent;scheme=$scheme;type=video/*;package=org.videolan.vlc;end',
+          );
+          launched = await launchUrl(vlcIntentUri, mode: LaunchMode.externalNonBrowserApplication);
+        } catch (_) {}
+
+        // 3b. If not launched, target any installed video player (excludes web browsers)
+        if (!launched) {
+          try {
+            final genericVideoIntentUri = Uri.parse(
+              'intent://$urlNoHttp#Intent;scheme=$scheme;type=video/*;end',
+            );
+            launched = await launchUrl(genericVideoIntentUri, mode: LaunchMode.externalNonBrowserApplication);
+          } catch (_) {}
+        }
+      }
+
+      // 4. VLC custom protocol scheme: vlc://<url> (supported by VLC on iOS, Android, and desktop)
       if (!launched) {
         try {
           final vlcUri = Uri.parse('vlc://$mediaUrl');
           if (await canLaunchUrl(vlcUri)) {
-            launched = await launchUrl(vlcUri, mode: LaunchMode.externalApplication);
+            launched = await launchUrl(vlcUri, mode: LaunchMode.externalNonBrowserApplication);
           }
         } catch (_) {}
       }
 
+      // 5. If no video player is installed, DO NOT open the browser silently.
+      // Instead, show a dialog allowing the user to copy the URL or install VLC.
       if (!launched && context.mounted) {
         showDialog(
           context: context,
@@ -2519,12 +2553,12 @@ class VideoStreamPlayerModal extends StatefulWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'No compatible player was found to launch this stream automatically.',
+                  'No media player (like VLC or MX Player) was found on your device to open this stream.',
                   style: TextStyle(fontSize: 13),
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'Copy the stream URL and paste it into VLC (Media > Open Network Stream):',
+                  'You can copy the stream URL and paste it into VLC (Media > Open Network Stream):',
                   style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
                 const SizedBox(height: 8),
@@ -2552,13 +2586,32 @@ class VideoStreamPlayerModal extends StatefulWidget {
                 },
                 child: const Text('Copy URL'),
               ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(dialogCtx);
+                  launchUrl(Uri.parse(mediaUrl), mode: LaunchMode.externalApplication);
+                },
+                child: const Text('Open in Browser', style: TextStyle(color: Colors.grey)),
+              ),
               ElevatedButton(
                 onPressed: () {
                   Navigator.pop(dialogCtx);
-                  launchUrl(
-                    Uri.parse('market://details?id=org.videolan.vlc'),
-                    mode: LaunchMode.externalApplication,
-                  );
+                  if (Platform.isAndroid) {
+                    launchUrl(
+                      Uri.parse('market://details?id=org.videolan.vlc'),
+                      mode: LaunchMode.externalApplication,
+                    );
+                  } else if (Platform.isIOS) {
+                    launchUrl(
+                      Uri.parse('https://apps.apple.com/app/vlc-media-player/id650377962'),
+                      mode: LaunchMode.externalApplication,
+                    );
+                  } else {
+                    launchUrl(
+                      Uri.parse('https://www.videolan.org/vlc/'),
+                      mode: LaunchMode.externalApplication,
+                    );
+                  }
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF4E6AF3),
