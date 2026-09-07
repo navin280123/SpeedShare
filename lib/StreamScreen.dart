@@ -1058,6 +1058,27 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
       }
     } catch (e) {
       _showSnackBar('Error playing audio: $e', isError: true);
+      if (mounted) {
+        final codeParam = _devicePin != null ? '&code=$_devicePin' : '';
+        final streamUrl = isLocalHost
+            ? item.path
+            : 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media?id=${item.id}$codeParam';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Audio format not supported in-app. Play in VLC?'),
+            action: SnackBarAction(
+              label: 'Play in VLC',
+              textColor: const Color(0xFF2AB673),
+              onPressed: () => VideoStreamPlayerModal.openMediaInExternalPlayer(
+                context: context,
+                mediaItem: item,
+                mediaUrl: streamUrl,
+                isLocal: isLocalHost,
+              ),
+            ),
+          ),
+        );
+      }
     }
   }
 
@@ -1731,83 +1752,79 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
             Text(_formatBytes(item.size), style: const TextStyle(fontSize: 11, color: Colors.grey)),
           ],
         ),
-        trailing: isAudio
-            ? ElevatedButton.icon(
-                onPressed: () => _playMediaItem(item, isLocalHost: false),
-                icon: Icon(
-                  isPlayingThis && _isAudioPlaying
-                      ? Icons.pause_rounded
-                      : Icons.play_arrow_rounded,
-                  size: 18,
-                ),
-                label: Text(isPlayingThis && _isAudioPlaying ? 'Playing' : 'Stream'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: isPlayingThis ? const Color(0xFF2AB673) : const Color(0xFF4E6AF3),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                ),
-              )
-            : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ElevatedButton.icon(
-                    onPressed: () => _playMediaItem(item, isLocalHost: false),
-                    icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                    label: const Text('Stream'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF4E6AF3),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  PopupMenuButton<String>(
-                    icon: const Icon(Icons.more_vert_rounded, size: 20, color: Colors.grey),
-                    tooltip: 'Options',
-                    onSelected: (val) {
-                      final codeParam = _devicePin != null ? '&code=$_devicePin' : '';
-                      final url = 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media?id=${item.id}$codeParam';
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ElevatedButton.icon(
+              onPressed: () => _playMediaItem(item, isLocalHost: false),
+              icon: Icon(
+                isAudio && isPlayingThis && _isAudioPlaying
+                    ? Icons.pause_rounded
+                    : Icons.play_arrow_rounded,
+                size: 18,
+              ),
+              label: Text(
+                isAudio && isPlayingThis && _isAudioPlaying
+                    ? 'Playing'
+                    : 'Stream',
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isAudio && isPlayingThis
+                    ? const Color(0xFF2AB673)
+                    : const Color(0xFF4E6AF3),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+            ),
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert_rounded, size: 20, color: Colors.grey),
+              tooltip: 'Options',
+              onSelected: (val) {
+                final codeParam = _devicePin != null ? '&code=$_devicePin' : '';
+                final url = 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media?id=${item.id}$codeParam';
 
-                      if (val == 'external') {
-                        VideoStreamPlayerModal.openMediaInExternalPlayer(
-                          context: context,
-                          mediaItem: item,
-                          mediaUrl: url,
-                          isLocal: false,
-                        );
-                      } else if (val == 'copy') {
-                        Clipboard.setData(ClipboardData(text: url));
-                        _showSnackBar('Stream URL copied to clipboard');
-                      }
-                    },
-                    itemBuilder: (ctx) => [
-                      const PopupMenuItem(
-                        value: 'external',
-                        child: Row(
-                          children: [
-                            Icon(Icons.open_in_new_rounded, size: 18, color: Color(0xFF4E6AF3)),
-                            SizedBox(width: 8),
-                            Text('Play in VLC / External'),
-                          ],
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: 'copy',
-                        child: Row(
-                          children: [
-                            Icon(Icons.copy_rounded, size: 18, color: Colors.grey),
-                            SizedBox(width: 8),
-                            Text('Copy Stream URL'),
-                          ],
-                        ),
-                      ),
+                if (val == 'external') {
+                  if (isAudio && isPlayingThis && _isAudioPlaying) {
+                    _audioPlayer.pause();
+                  }
+                  VideoStreamPlayerModal.openMediaInExternalPlayer(
+                    context: context,
+                    mediaItem: item,
+                    mediaUrl: url,
+                    isLocal: false,
+                  );
+                } else if (val == 'copy') {
+                  Clipboard.setData(ClipboardData(text: url));
+                  _showSnackBar('Stream URL copied to clipboard');
+                }
+              },
+              itemBuilder: (ctx) => [
+                const PopupMenuItem(
+                  value: 'external',
+                  child: Row(
+                    children: [
+                      Icon(Icons.open_in_new_rounded, size: 18, color: Color(0xFF4E6AF3)),
+                      SizedBox(width: 8),
+                      Text('Play in VLC / External'),
                     ],
                   ),
-                ],
-              ),
+                ),
+                const PopupMenuItem(
+                  value: 'copy',
+                  child: Row(
+                    children: [
+                      Icon(Icons.copy_rounded, size: 18, color: Colors.grey),
+                      SizedBox(width: 8),
+                      Text('Copy Stream URL'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2093,17 +2110,16 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                           tooltip: 'Preview',
                           onPressed: () => _playMediaItem(item, isLocalHost: true),
                         ),
-                        if (!isAudio)
-                          IconButton(
-                            icon: const Icon(Icons.open_in_new_rounded, size: 20, color: Color(0xFF2AB673)),
-                            tooltip: 'Play in VLC / External Player',
-                            onPressed: () => VideoStreamPlayerModal.openMediaInExternalPlayer(
-                              context: context,
-                              mediaItem: item,
-                              mediaUrl: item.path,
-                              isLocal: true,
-                            ),
+                        IconButton(
+                          icon: const Icon(Icons.open_in_new_rounded, size: 20, color: Color(0xFF2AB673)),
+                          tooltip: 'Play in VLC / External Player',
+                          onPressed: () => VideoStreamPlayerModal.openMediaInExternalPlayer(
+                            context: context,
+                            mediaItem: item,
+                            mediaUrl: item.path,
+                            isLocal: true,
                           ),
+                        ),
                         IconButton(
                           icon: const Icon(Icons.close_rounded, size: 18, color: Colors.grey),
                           tooltip: 'Remove',
@@ -2246,6 +2262,26 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                     onPressed: _playNextAudioTrack,
                   ),
                   IconButton(
+                    icon: const Icon(Icons.open_in_new_rounded, size: 20, color: Color(0xFF4E6AF3)),
+                    tooltip: 'Play in VLC / External Player',
+                    onPressed: () {
+                      final item = _currentAudioItem;
+                      if (item == null) return;
+                      final isLocal = _activeTab == StreamTabMode.stream;
+                      final codeParam = _devicePin != null ? '&code=$_devicePin' : '';
+                      final url = isLocal
+                          ? item.path
+                          : 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media?id=${item.id}$codeParam';
+                      _audioPlayer.pause();
+                      VideoStreamPlayerModal.openMediaInExternalPlayer(
+                        context: context,
+                        mediaItem: item,
+                        mediaUrl: url,
+                        isLocal: isLocal,
+                      );
+                    },
+                  ),
+                  IconButton(
                     icon: const Icon(Icons.close_rounded, size: 20),
                     onPressed: () async {
                       await _audioPlayer.stop();
@@ -2281,13 +2317,49 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
             padding: const EdgeInsets.all(24),
             child: Column(
               children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.withValues(alpha: 0.4),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          final isLocal = _activeTab == StreamTabMode.stream;
+                          final codeParam = _devicePin != null ? '&code=$_devicePin' : '';
+                          final url = isLocal
+                              ? item.path
+                              : 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media?id=${item.id}$codeParam';
+                          _audioPlayer.pause();
+                          setModalState(() {});
+                          setState(() {});
+                          VideoStreamPlayerModal.openMediaInExternalPlayer(
+                            context: context,
+                            mediaItem: item,
+                            mediaUrl: url,
+                            isLocal: isLocal,
+                          );
+                        },
+                        icon: const Icon(Icons.open_in_new_rounded, size: 14, color: Color(0xFF4E6AF3)),
+                        label: const Text('Play in VLC', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 24),
                 // Vinyl Disc / Artwork Display
@@ -2497,27 +2569,28 @@ class VideoStreamPlayerModal extends StatefulWidget {
         } catch (_) {}
       }
 
-      // 3. Android: Use Android Intent URIs specifically typed as video/*
-      // This forces Android to target video players (VLC, MX Player) and NEVER browsers.
+      // 3. Android: Use Android Intent URIs specifically typed as audio/* or video/*
+      // This forces Android to target media players (VLC, MX Player) and NEVER browsers.
       if (Platform.isAndroid) {
         final urlNoHttp = mediaUrl.replaceFirst(RegExp(r'^https?:\/\/'), '');
         final scheme = mediaUrl.startsWith('https://') ? 'https' : 'http';
+        final mimeType = mediaItem.type == StreamMediaType.audio ? 'audio/*' : 'video/*';
 
         // 3a. Target VLC for Android directly
         try {
           final vlcIntentUri = Uri.parse(
-            'intent://$urlNoHttp#Intent;scheme=$scheme;type=video/*;package=org.videolan.vlc;end',
+            'intent://$urlNoHttp#Intent;scheme=$scheme;type=$mimeType;package=org.videolan.vlc;end',
           );
           launched = await launchUrl(vlcIntentUri, mode: LaunchMode.externalNonBrowserApplication);
         } catch (_) {}
 
-        // 3b. If not launched, target any installed video player (excludes web browsers)
+        // 3b. If not launched, target any installed media player (excludes web browsers)
         if (!launched) {
           try {
-            final genericVideoIntentUri = Uri.parse(
-              'intent://$urlNoHttp#Intent;scheme=$scheme;type=video/*;end',
+            final genericMediaIntentUri = Uri.parse(
+              'intent://$urlNoHttp#Intent;scheme=$scheme;type=$mimeType;end',
             );
-            launched = await launchUrl(genericVideoIntentUri, mode: LaunchMode.externalNonBrowserApplication);
+            launched = await launchUrl(genericMediaIntentUri, mode: LaunchMode.externalNonBrowserApplication);
           } catch (_) {}
         }
       }
@@ -2532,27 +2605,33 @@ class VideoStreamPlayerModal extends StatefulWidget {
         } catch (_) {}
       }
 
-      // 5. If no video player is installed, DO NOT open the browser silently.
+      // 5. If no media player is installed, DO NOT open the browser silently.
       // Instead, show a dialog allowing the user to copy the URL or install VLC.
       if (!launched && context.mounted) {
+        final isAudio = mediaItem.type == StreamMediaType.audio;
         showDialog(
           context: context,
           builder: (dialogCtx) => AlertDialog(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Row(
+            title: Row(
               children: [
-                Icon(Icons.video_library_rounded, color: Color(0xFF4E6AF3)),
-                SizedBox(width: 8),
-                Text('Open in External Player', style: TextStyle(fontSize: 16)),
+                Icon(
+                  isAudio ? Icons.music_note_rounded : Icons.video_library_rounded,
+                  color: const Color(0xFF4E6AF3),
+                ),
+                const SizedBox(width: 8),
+                const Text('Open in External Player', style: TextStyle(fontSize: 16)),
               ],
             ),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'No media player (like VLC or MX Player) was found on your device to open this stream.',
-                  style: TextStyle(fontSize: 13),
+                Text(
+                  isAudio
+                      ? 'No external media player (like VLC) was found on your device to open this audio stream.'
+                      : 'No media player (like VLC or MX Player) was found on your device to open this stream.',
+                  style: const TextStyle(fontSize: 13),
                 ),
                 const SizedBox(height: 12),
                 const Text(
@@ -2880,11 +2959,19 @@ class _VideoStreamPlayerModalState extends State<VideoStreamPlayerModal> {
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                              IconButton(
-                                icon: const Icon(Icons.open_in_new_rounded, color: Colors.white),
-                                tooltip: 'Open in VLC / External Player',
+                              OutlinedButton.icon(
                                 onPressed: _openExternalPlayer,
+                                icon: const Icon(Icons.open_in_new_rounded, size: 15, color: Colors.white),
+                                label: const Text('Play in VLC', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  side: const BorderSide(color: Colors.white54, width: 1),
+                                  backgroundColor: Colors.black45,
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
                               ),
+                              const SizedBox(width: 8),
                               PopupMenuButton<double>(
                                 icon: Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
