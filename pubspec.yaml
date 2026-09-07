@@ -58,6 +58,7 @@ dependencies:
   video_player: ^2.14.0
   wakelock_plus: ^1.2.8
   flutter_foreground_task: ^8.17.0
+  video_player_win: ^3.2.2
 
 dev_dependencies:
   flutter_test:

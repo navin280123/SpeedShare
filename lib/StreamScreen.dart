@@ -3104,8 +3104,41 @@ class VideoStreamPlayerModal extends StatefulWidget {
         } catch (_) {}
       }
 
-      // 2. Windows: launch VLC command line
+      // 2. Windows: launch VLC or other installed media players via full path, then PATH, then default app
       if (Platform.isWindows) {
+        // 2a. Common installation paths for VLC Media Player
+        final vlcCandidates = [
+          r'C:\Program Files\VideoLAN\VLC\vlc.exe',
+          r'C:\Program Files (x86)\VideoLAN\VLC\vlc.exe',
+        ];
+        for (final vlcPath in vlcCandidates) {
+          if (File(vlcPath).existsSync()) {
+            try {
+              final proc = await Process.start(vlcPath, [mediaUrl]);
+              if (proc.pid > 0) return;
+            } catch (_) {}
+          }
+        }
+
+        // 2b. Other popular Windows media players (PotPlayer, MPC-HC, MPV)
+        final otherPlayerCandidates = [
+          r'C:\Program Files\DAUM\PotPlayer\PotPlayer64.exe',
+          r'C:\Program Files (x86)\DAUM\PotPlayer\PotPlayer.exe',
+          r'C:\Program Files\MPC-HC\mpc-hc64.exe',
+          r'C:\Program Files (x86)\MPC-HC\mpc-hc.exe',
+          r'C:\Program Files\mpv\mpv.exe',
+          r'C:\mpv\mpv.exe',
+        ];
+        for (final playerPath in otherPlayerCandidates) {
+          if (File(playerPath).existsSync()) {
+            try {
+              final proc = await Process.start(playerPath, [mediaUrl]);
+              if (proc.pid > 0) return;
+            } catch (_) {}
+          }
+        }
+
+        // 2c. Try launching VLC from system PATH
         try {
           final res = await Process.run('cmd', [
             '/c',
@@ -3114,6 +3147,15 @@ class VideoStreamPlayerModal extends StatefulWidget {
             mediaUrl,
           ]);
           if (res.exitCode == 0) return;
+        } catch (_) {}
+
+        // 2d. Fallback: Launch media URL in default browser / system media handler
+        try {
+          final launchedBrowser = await launchUrl(
+            Uri.parse(mediaUrl),
+            mode: LaunchMode.externalApplication,
+          );
+          if (launchedBrowser) return;
         } catch (_) {}
       }
 
@@ -3136,7 +3178,33 @@ class VideoStreamPlayerModal extends StatefulWidget {
           );
         } catch (_) {}
 
-        // 3b. If not launched, target any installed media player (excludes web browsers)
+        // 3b. Target MX Player (Free) for Android directly
+        if (!launched) {
+          try {
+            final mxPlayerIntentUri = Uri.parse(
+              'intent://$urlNoHttp#Intent;scheme=$scheme;type=$mimeType;package=com.mxtech.videoplayer.ad;end',
+            );
+            launched = await launchUrl(
+              mxPlayerIntentUri,
+              mode: LaunchMode.externalNonBrowserApplication,
+            );
+          } catch (_) {}
+        }
+
+        // 3c. Target MX Player Pro for Android directly
+        if (!launched) {
+          try {
+            final mxPlayerProIntentUri = Uri.parse(
+              'intent://$urlNoHttp#Intent;scheme=$scheme;type=$mimeType;package=com.mxtech.videoplayer.pro;end',
+            );
+            launched = await launchUrl(
+              mxPlayerProIntentUri,
+              mode: LaunchMode.externalNonBrowserApplication,
+            );
+          } catch (_) {}
+        }
+
+        // 3d. If not launched, target any installed media player (excludes web browsers)
         if (!launched) {
           try {
             final genericMediaIntentUri = Uri.parse(
@@ -3472,10 +3540,12 @@ class _VideoStreamPlayerModalState extends State<VideoStreamPlayerModal> {
                                   ),
                                 ),
                                 const SizedBox(height: 8),
-                                const Text(
-                                  'MKV containers or audio codecs (like Dolby AC3 / DTS) are not supported by Android\'s native player.\nPlay it with VLC or MX Player instead.',
+                                Text(
+                                  Platform.isWindows
+                                      ? 'This container or codec is not supported by Windows Media Foundation.\nPlay it with VLC Media Player or your browser instead.'
+                                      : 'MKV containers or audio codecs (like Dolby AC3 / DTS) are not supported by the native player.\nPlay it with VLC or MX Player instead.',
                                   textAlign: TextAlign.center,
-                                  style: TextStyle(
+                                  style: const TextStyle(
                                     color: Colors.white70,
                                     fontSize: 12,
                                   ),

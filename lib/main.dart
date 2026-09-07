@@ -1,7 +1,9 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:video_player_win/video_player_win_plugin.dart';
 
 import 'package:speedsharemob/MainScreen.dart';
 import 'package:speedsharemob/PermissionManager.dart';
@@ -13,6 +15,9 @@ final ValueNotifier<bool> darkModeNotifier = ValueNotifier<bool>(false);
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (!kIsWeb && Platform.isWindows) {
+    WindowsVideoPlayer.registerWith();
+  }
   BackgroundService.initialize(); // Register foreground service notification channel
   await NotificationService().initialize();
   await SharedContentService().initialize(initialArgs: args);
