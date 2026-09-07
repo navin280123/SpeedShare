@@ -19,6 +19,7 @@ import 'package:speedsharemob/BackgroundService.dart';
 import 'package:speedsharemob/FastFilePicker.dart';
 
 enum StreamTabMode { connect, stream }
+
 enum StreamMediaType { audio, video }
 
 class StreamMediaItem {
@@ -52,16 +53,20 @@ class StreamMediaItem {
     'album': album ?? '',
   };
 
-  factory StreamMediaItem.fromJson(Map<String, dynamic> json) => StreamMediaItem(
-    id: json['id'] ?? '',
-    path: '',
-    name: json['name'] ?? 'Unknown Media',
-    type: json['type'] == 'audio' ? StreamMediaType.audio : StreamMediaType.video,
-    size: json['size'] ?? 0,
-    extension: json['extension'] ?? '',
-    artist: json['artist'],
-    album: json['album'],
-  );
+  factory StreamMediaItem.fromJson(Map<String, dynamic> json) =>
+      StreamMediaItem(
+        id: json['id'] ?? '',
+        path: '',
+        name: json['name'] ?? 'Unknown Media',
+        type:
+            json['type'] == 'audio'
+                ? StreamMediaType.audio
+                : StreamMediaType.video,
+        size: json['size'] ?? 0,
+        extension: json['extension'] ?? '',
+        artist: json['artist'],
+        album: json['album'],
+      );
 }
 
 class StreamDevice {
@@ -107,7 +112,8 @@ class StreamScreen extends StatefulWidget {
   State<StreamScreen> createState() => StreamScreenState();
 }
 
-class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixin {
+class StreamScreenState extends State<StreamScreen>
+    with TickerProviderStateMixin {
   // Mode switcher: Connect vs Stream (Host)
   StreamTabMode _activeTab = StreamTabMode.connect;
 
@@ -117,7 +123,8 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
   int _serverPort = 8084;
   String? _accessCode;
   bool _isStreaming = false;
-  bool _isLoadingMedia = false; // Issue 2: shown while indexing large files/folders
+  bool _isLoadingMedia =
+      false; // Issue 2: shown while indexing large files/folders
   final List<StreamMediaItem> _hostedMediaList = [];
   final Map<String, ConnectedStreamClient> _connectedListeners = {};
 
@@ -239,23 +246,28 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
       _streamDiscoverySocket?.broadcastEnabled = true;
 
       try {
-        _streamDiscoverySocket?.joinMulticast(InternetAddress('239.255.255.250'));
+        _streamDiscoverySocket?.joinMulticast(
+          InternetAddress('239.255.255.250'),
+        );
       } catch (_) {}
 
-      _streamDiscoverySocket?.listen((event) {
-        if (event == RawSocketEvent.read) {
-          final datagram = _streamDiscoverySocket?.receive();
-          if (datagram != null) {
-            _handleDiscoveryDatagram(datagram);
+      _streamDiscoverySocket?.listen(
+        (event) {
+          if (event == RawSocketEvent.read) {
+            final datagram = _streamDiscoverySocket?.receive();
+            if (datagram != null) {
+              _handleDiscoveryDatagram(datagram);
+            }
           }
-        }
-      }, onError: (e) {
-        if (e is SocketException &&
-            (e.osError?.errorCode == 65 || e.osError?.errorCode == 51)) {
-          return;
-        }
-        debugPrint('Stream discovery socket error: $e');
-      });
+        },
+        onError: (e) {
+          if (e is SocketException &&
+              (e.osError?.errorCode == 65 || e.osError?.errorCode == 51)) {
+            return;
+          }
+          debugPrint('Stream discovery socket error: $e');
+        },
+      );
     } catch (e) {
       debugPrint('Error initializing stream discovery: $e');
     }
@@ -284,7 +296,9 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
     if (incomingIp == '127.0.0.1' || incomingIp == '::1') return true;
     try {
       final myName = await DeviceNameManager.getDeviceName();
-      if (incomingName != null && incomingName.trim().isNotEmpty && incomingName == myName) {
+      if (incomingName != null &&
+          incomingName.trim().isNotEmpty &&
+          incomingName == myName) {
         return true;
       }
       final interfaces = await NetworkInterface.list();
@@ -344,8 +358,10 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
     if (_streamDiscoverySocket == null || !_isStreaming) return;
     try {
       final deviceName = await DeviceNameManager.getDeviceName();
-      final audioCount = _hostedMediaList.where((m) => m.type == StreamMediaType.audio).length;
-      final videoCount = _hostedMediaList.where((m) => m.type == StreamMediaType.video).length;
+      final audioCount =
+          _hostedMediaList.where((m) => m.type == StreamMediaType.audio).length;
+      final videoCount =
+          _hostedMediaList.where((m) => m.type == StreamMediaType.video).length;
 
       final message = json.encode({
         'type': 'SPEEDSHARE_STREAM_ANNOUNCE',
@@ -362,12 +378,20 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
 
       // Global broadcast
       try {
-        _streamDiscoverySocket?.send(bytes, InternetAddress('255.255.255.255'), 8085);
+        _streamDiscoverySocket?.send(
+          bytes,
+          InternetAddress('255.255.255.255'),
+          8085,
+        );
       } catch (_) {}
 
       // Multicast
       try {
-        _streamDiscoverySocket?.send(bytes, InternetAddress('239.255.255.250'), 8085);
+        _streamDiscoverySocket?.send(
+          bytes,
+          InternetAddress('239.255.255.250'),
+          8085,
+        );
       } catch (_) {}
 
       // Subnet broadcasts
@@ -380,7 +404,11 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
             if (parts.length == 4) {
               final subnet = parts.sublist(0, 3).join('.');
               try {
-                _streamDiscoverySocket?.send(bytes, InternetAddress('$subnet.255'), 8085);
+                _streamDiscoverySocket?.send(
+                  bytes,
+                  InternetAddress('$subnet.255'),
+                  8085,
+                );
               } catch (_) {}
             }
           }
@@ -402,12 +430,20 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
 
       // Global broadcast
       try {
-        _streamDiscoverySocket?.send(bytes, InternetAddress('255.255.255.255'), 8085);
+        _streamDiscoverySocket?.send(
+          bytes,
+          InternetAddress('255.255.255.255'),
+          8085,
+        );
       } catch (_) {}
 
       // Multicast
       try {
-        _streamDiscoverySocket?.send(bytes, InternetAddress('239.255.255.250'), 8085);
+        _streamDiscoverySocket?.send(
+          bytes,
+          InternetAddress('239.255.255.250'),
+          8085,
+        );
       } catch (_) {}
 
       // Subnet broadcasts
@@ -420,7 +456,11 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
             if (parts.length == 4) {
               final subnet = parts.sublist(0, 3).join('.');
               try {
-                _streamDiscoverySocket?.send(bytes, InternetAddress('$subnet.255'), 8085);
+                _streamDiscoverySocket?.send(
+                  bytes,
+                  InternetAddress('$subnet.255'),
+                  8085,
+                );
               } catch (_) {}
             }
           }
@@ -439,10 +479,8 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
     _isTcpScanning = true;
     try {
       final interfaces = await NetworkInterface.list();
-      final localIps = interfaces
-          .expand((i) => i.addresses)
-          .map((a) => a.address)
-          .toSet();
+      final localIps =
+          interfaces.expand((i) => i.addresses).map((a) => a.address).toSet();
       localIps.addAll(['127.0.0.1', '::1']);
 
       for (var interface in interfaces) {
@@ -459,28 +497,30 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
               final prioritySet = <int>{};
               prioritySet.add(1); // Gateway
               for (int delta = 1; delta <= 20; delta++) {
-                if (currentOctet - delta >= 1) prioritySet.add(currentOctet - delta);
-                if (currentOctet + delta <= 254) prioritySet.add(currentOctet + delta);
+                if (currentOctet - delta >= 1)
+                  prioritySet.add(currentOctet - delta);
+                if (currentOctet + delta <= 254)
+                  prioritySet.add(currentOctet + delta);
               }
               for (int i = 1; i <= 254; i++) {
                 prioritySet.add(i);
               }
 
-              final ipsToScan = prioritySet
-                  .map((i) => '$prefix.$i')
-                  .where((ip) => !localIps.contains(ip))
-                  .toList();
+              final ipsToScan =
+                  prioritySet
+                      .map((i) => '$prefix.$i')
+                      .where((ip) => !localIps.contains(ip))
+                      .toList();
 
               const int chunkSize = 30;
               for (int j = 0; j < ipsToScan.length; j += chunkSize) {
                 if (!mounted) break;
-                final end = (j + chunkSize < ipsToScan.length)
-                    ? j + chunkSize
-                    : ipsToScan.length;
+                final end =
+                    (j + chunkSize < ipsToScan.length)
+                        ? j + chunkSize
+                        : ipsToScan.length;
                 final chunk = ipsToScan.sublist(j, end);
-                await Future.wait(
-                  chunk.map((ip) => _probeStreamHostTcp(ip)),
-                );
+                await Future.wait(chunk.map((ip) => _probeStreamHostTcp(ip)));
               }
             }
           }
@@ -493,14 +533,20 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
   }
 
   Future<void> _probeStreamHostTcp(String ip) async {
-    final client = HttpClient()..connectionTimeout = const Duration(milliseconds: 450);
+    final client =
+        HttpClient()..connectionTimeout = const Duration(milliseconds: 450);
     try {
-      final request = await client.getUrl(Uri.parse('http://$ip:$_serverPort/api/stream/info'));
-      final response = await request.close().timeout(const Duration(milliseconds: 600));
+      final request = await client.getUrl(
+        Uri.parse('http://$ip:$_serverPort/api/stream/info'),
+      );
+      final response = await request.close().timeout(
+        const Duration(milliseconds: 600),
+      );
       if (response.statusCode == 200) {
         final body = await response.transform(utf8.decoder).join();
         final data = json.decode(body) as Map<String, dynamic>;
-        final deviceName = data['deviceName'] as String? ?? 'SpeedShare Stream Host';
+        final deviceName =
+            data['deviceName'] as String? ?? 'SpeedShare Stream Host';
         final hasCode = data['hasAccessCode'] as bool? ?? false;
         final mediaCount = data['mediaCount'] as int? ?? 0;
 
@@ -536,10 +582,18 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
       final bytes = utf8.encode(message);
 
       try {
-        _streamDiscoverySocket?.send(bytes, InternetAddress('255.255.255.255'), 8085);
+        _streamDiscoverySocket?.send(
+          bytes,
+          InternetAddress('255.255.255.255'),
+          8085,
+        );
       } catch (_) {}
       try {
-        _streamDiscoverySocket?.send(bytes, InternetAddress('239.255.255.250'), 8085);
+        _streamDiscoverySocket?.send(
+          bytes,
+          InternetAddress('239.255.255.250'),
+          8085,
+        );
       } catch (_) {}
     } catch (_) {}
   }
@@ -556,7 +610,10 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
 
   Future<void> _startStreamServer() async {
     if (_hostedMediaList.isEmpty) {
-      _showSnackBar('Please select at least one music or video file to stream', isError: true);
+      _showSnackBar(
+        'Please select at least one music or video file to stream',
+        isError: true,
+      );
       return;
     }
 
@@ -565,7 +622,10 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
       _accessCode = (1000 + Random().nextInt(9000)).toString();
 
       // Bind HTTP server
-      _streamServer = await HttpServer.bind(InternetAddress.anyIPv4, _serverPort);
+      _streamServer = await HttpServer.bind(
+        InternetAddress.anyIPv4,
+        _serverPort,
+      );
       _streamServer!.listen(
         _handleStreamHttpRequest,
         onError: (e) => debugPrint('Stream server error: $e'),
@@ -585,7 +645,9 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
         body: 'Live media stream · PIN: $_accessCode (Port $_serverPort)',
         buttons: [BackgroundService.stopStreamButton],
       );
-      _showSnackBar('Live Media Stream started on port $_serverPort! PIN: $_accessCode');
+      _showSnackBar(
+        'Live Media Stream started on port $_serverPort! PIN: $_accessCode',
+      );
     } catch (e) {
       // Fallback to random port if 8084 occupied
       try {
@@ -651,7 +713,8 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
       final count = _connectedListeners.length;
       BackgroundService.update(
         title: 'SpeedShare — Streaming',
-        body: 'Live stream (Port $_serverPort) · $count active listener${count == 1 ? '' : 's'}',
+        body:
+            'Live stream (Port $_serverPort) · $count active listener${count == 1 ? '' : 's'}',
         buttons: [BackgroundService.stopStreamButton],
       );
     }
@@ -660,7 +723,10 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
   void _handleStreamHttpRequest(HttpRequest request) async {
     // Add CORS headers for web/flexible clients
     request.response.headers.add('Access-Control-Allow-Origin', '*');
-    request.response.headers.add('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    request.response.headers.add(
+      'Access-Control-Allow-Methods',
+      'GET, HEAD, OPTIONS',
+    );
     request.response.headers.add('Access-Control-Allow-Headers', '*');
 
     if (request.method == 'OPTIONS') {
@@ -671,7 +737,8 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
 
     try {
       final uri = request.uri;
-      final clientIp = request.connectionInfo?.remoteAddress.address ?? 'unknown';
+      final clientIp =
+          request.connectionInfo?.remoteAddress.address ?? 'unknown';
 
       // 1. Info / Ping Endpoint
       if (uri.path == '/api/stream/info') {
@@ -689,7 +756,9 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
 
       // Check PIN
       final providedCode = uri.queryParameters['code']?.trim();
-      if (_accessCode != null && _accessCode!.isNotEmpty && providedCode != _accessCode) {
+      if (_accessCode != null &&
+          _accessCode!.isNotEmpty &&
+          providedCode != _accessCode) {
         request.response.statusCode = 403;
         request.response.headers.contentType = ContentType.json;
         request.response.write(json.encode({'error': 'Invalid stream PIN'}));
@@ -701,31 +770,39 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
       if (uri.path == '/api/stream/catalog') {
         final catalog = _hostedMediaList.map((m) => m.toJson()).toList();
         request.response.headers.contentType = ContentType.json;
-        request.response.write(json.encode({
-          'host': await DeviceNameManager.getDeviceName(),
-          'items': catalog,
-        }));
+        request.response.write(
+          json.encode({
+            'host': await DeviceNameManager.getDeviceName(),
+            'items': catalog,
+          }),
+        );
         await request.response.close();
         return;
       }
 
       // 3. Media Streaming Endpoint with Range / 206 Partial Content
-      if (uri.path == '/api/stream/media' || uri.path.startsWith('/api/stream/media/')) {
+      if (uri.path == '/api/stream/media' ||
+          uri.path.startsWith('/api/stream/media/')) {
         final mediaId = uri.queryParameters['id'];
-        final pathFileName = uri.path.startsWith('/api/stream/media/')
-            ? Uri.decodeComponent(uri.path.substring('/api/stream/media/'.length))
-            : null;
+        final pathFileName =
+            uri.path.startsWith('/api/stream/media/')
+                ? Uri.decodeComponent(
+                  uri.path.substring('/api/stream/media/'.length),
+                )
+                : null;
         final item = _hostedMediaList.firstWhere(
-          (m) => (mediaId != null && m.id == mediaId) ||
-                 (pathFileName != null && m.name == pathFileName),
-          orElse: () => StreamMediaItem(
-            id: '',
-            path: '',
-            name: '',
-            type: StreamMediaType.audio,
-            size: 0,
-            extension: '',
-          ),
+          (m) =>
+              (mediaId != null && m.id == mediaId) ||
+              (pathFileName != null && m.name == pathFileName),
+          orElse:
+              () => StreamMediaItem(
+                id: '',
+                path: '',
+                name: '',
+                type: StreamMediaType.audio,
+                size: 0,
+                extension: '',
+              ),
         );
 
         if (item.id.isEmpty || !File(item.path).existsSync()) {
@@ -739,7 +816,8 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
 
         final file = File(item.path);
         final fileSize = await file.length();
-        final mimeTypeStr = lookupMimeType(item.path) ??
+        final mimeTypeStr =
+            lookupMimeType(item.path) ??
             (item.type == StreamMediaType.audio ? 'audio/mpeg' : 'video/mp4');
 
         ContentType contentType;
@@ -763,12 +841,18 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
           final match = RegExp(r'bytes=(\d+)-(\d+)?').firstMatch(rangeHeader);
           if (match != null) {
             final start = int.parse(match.group(1)!);
-            final end = match.group(2) != null ? int.parse(match.group(2)!) : fileSize - 1;
+            final end =
+                match.group(2) != null
+                    ? int.parse(match.group(2)!)
+                    : fileSize - 1;
 
             if (start < fileSize && end < fileSize && start <= end) {
               final length = end - start + 1;
               request.response.statusCode = HttpStatus.partialContent;
-              request.response.headers.add('Content-Range', 'bytes $start-$end/$fileSize');
+              request.response.headers.add(
+                'Content-Range',
+                'bytes $start-$end/$fileSize',
+              );
               request.response.headers.add('Content-Length', length.toString());
               await file.openRead(start, end + 1).pipe(request.response);
               return;
@@ -798,8 +882,22 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
     if (_isLoadingMedia) return; // prevent double-tap
     if (mounted) setState(() => _isLoadingMedia = true);
     final allowedExts = [
-      'mp3', 'wav', 'aac', 'm4a', 'flac', 'ogg', 'wma', 'opus',
-      'mp4', 'mkv', 'webm', 'mov', 'avi', 'wmv', '3gp', 'm4v'
+      'mp3',
+      'wav',
+      'aac',
+      'm4a',
+      'flac',
+      'ogg',
+      'wma',
+      'opus',
+      'mp4',
+      'mkv',
+      'webm',
+      'mov',
+      'avi',
+      'wmv',
+      '3gp',
+      'm4v',
     ];
     try {
       final paths = await FastFilePicker.pickFiles(
@@ -849,8 +947,22 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
     try {
       final dir = Directory(selectedDirectory);
       final allowedExts = {
-        '.mp3', '.wav', '.aac', '.m4a', '.flac', '.ogg', '.wma', '.opus',
-        '.mp4', '.mkv', '.webm', '.mov', '.avi', '.wmv', '.3gp', '.m4v'
+        '.mp3',
+        '.wav',
+        '.aac',
+        '.m4a',
+        '.flac',
+        '.ogg',
+        '.wma',
+        '.opus',
+        '.mp4',
+        '.mkv',
+        '.webm',
+        '.mov',
+        '.avi',
+        '.wmv',
+        '.3gp',
+        '.m4v',
       };
 
       int addedCount = 0;
@@ -876,20 +988,34 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
 
     final name = p.basename(filePath);
     final ext = p.extension(filePath).toLowerCase();
-    final audioExts = {'.mp3', '.wav', '.aac', '.m4a', '.flac', '.ogg', '.wma', '.opus'};
+    final audioExts = {
+      '.mp3',
+      '.wav',
+      '.aac',
+      '.m4a',
+      '.flac',
+      '.ogg',
+      '.wma',
+      '.opus',
+    };
     final isAudio = audioExts.contains(ext);
     final file = File(filePath);
     final size = file.existsSync() ? file.lengthSync() : 0;
-    final id = (filePath.hashCode ^ DateTime.now().microsecondsSinceEpoch).abs().toString();
+    final id =
+        (filePath.hashCode ^ DateTime.now().microsecondsSinceEpoch)
+            .abs()
+            .toString();
 
-    _hostedMediaList.add(StreamMediaItem(
-      id: id,
-      path: filePath,
-      name: name,
-      type: isAudio ? StreamMediaType.audio : StreamMediaType.video,
-      size: size,
-      extension: ext.replaceAll('.', '').toUpperCase(),
-    ));
+    _hostedMediaList.add(
+      StreamMediaItem(
+        id: id,
+        path: filePath,
+        name: name,
+        type: isAudio ? StreamMediaType.audio : StreamMediaType.video,
+        size: size,
+        extension: ext.replaceAll('.', '').toUpperCase(),
+      ),
+    );
   }
 
   void _removeHostedMedia(String id) {
@@ -925,44 +1051,60 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
     final controller = TextEditingController();
     return showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            const Icon(Icons.lock_rounded, color: Color(0xFF4E6AF3)),
-            const SizedBox(width: 8),
-            Expanded(child: Text('Enter Stream PIN for $hostName', style: const TextStyle(fontSize: 16))),
-          ],
-        ),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: TextInputType.number,
-          maxLength: 6,
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 24, letterSpacing: 6, fontWeight: FontWeight.bold),
-          decoration: InputDecoration(
-            hintText: 'PIN',
-            counterText: '',
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF4E6AF3),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      builder:
+          (context) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
             ),
-            child: const Text('Connect'),
+            title: Row(
+              children: [
+                const Icon(Icons.lock_rounded, color: Color(0xFF4E6AF3)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Enter Stream PIN for $hostName',
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                ),
+              ],
+            ),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 24,
+                letterSpacing: 6,
+                fontWeight: FontWeight.bold,
+              ),
+              decoration: InputDecoration(
+                hintText: 'PIN',
+                counterText: '',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, controller.text.trim()),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF4E6AF3),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                child: const Text('Connect'),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
@@ -975,27 +1117,36 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
 
     try {
       final codeParam = _devicePin != null ? '&code=$_devicePin' : '';
-      final uri = Uri.parse('http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/catalog?$codeParam');
+      final uri = Uri.parse(
+        'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/catalog?$codeParam',
+      );
       final response = await http.get(uri).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final items = (data['items'] as List)
-            .map((item) => StreamMediaItem.fromJson(item))
-            .toList();
+        final items =
+            (data['items'] as List)
+                .map((item) => StreamMediaItem.fromJson(item))
+                .toList();
 
         setState(() {
           _remoteCatalog = items;
           _isLoadingCatalog = false;
         });
       } else if (response.statusCode == 403) {
-        _showSnackBar('Invalid PIN for ${_connectedDevice!.name}', isError: true);
+        _showSnackBar(
+          'Invalid PIN for ${_connectedDevice!.name}',
+          isError: true,
+        );
         setState(() {
           _isLoadingCatalog = false;
           _connectedDevice = null;
         });
       } else {
-        _showSnackBar('Failed to load stream catalog (${response.statusCode})', isError: true);
+        _showSnackBar(
+          'Failed to load stream catalog (${response.statusCode})',
+          isError: true,
+        );
         setState(() => _isLoadingCatalog = false);
       }
     } catch (e) {
@@ -1030,7 +1181,10 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
     }
   }
 
-  void _startAudioStream(StreamMediaItem item, {bool isLocalHost = false}) async {
+  void _startAudioStream(
+    StreamMediaItem item, {
+    bool isLocalHost = false,
+  }) async {
     try {
       await _audioPlayer.stop();
       setState(() {
@@ -1044,28 +1198,33 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
         await _audioPlayer.play(DeviceFileSource(item.path));
       } else {
         final codeParam = _devicePin != null ? '&code=$_devicePin' : '';
-        final streamUrl = 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media?id=${item.id}$codeParam';
+        final streamUrl =
+            'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media?id=${item.id}$codeParam';
         await _audioPlayer.play(UrlSource(streamUrl));
       }
     } catch (e) {
       _showSnackBar('Error playing audio: $e', isError: true);
       if (mounted) {
         final codeParam = _devicePin != null ? '&code=$_devicePin' : '';
-        final streamUrl = isLocalHost
-            ? item.path
-            : 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media?id=${item.id}$codeParam';
+        final streamUrl =
+            isLocalHost
+                ? item.path
+                : 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media?id=${item.id}$codeParam';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Audio format not supported in-app. Play in VLC?'),
+            content: const Text(
+              'Audio format not supported in-app. Play in VLC?',
+            ),
             action: SnackBarAction(
               label: 'Play in VLC',
               textColor: const Color(0xFF2AB673),
-              onPressed: () => VideoStreamPlayerModal.openMediaInExternalPlayer(
-                context: context,
-                mediaItem: item,
-                mediaUrl: streamUrl,
-                isLocal: isLocalHost,
-              ),
+              onPressed:
+                  () => VideoStreamPlayerModal.openMediaInExternalPlayer(
+                    context: context,
+                    mediaItem: item,
+                    mediaUrl: streamUrl,
+                    isLocal: isLocalHost,
+                  ),
             ),
           ),
         );
@@ -1074,28 +1233,47 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
   }
 
   void _playNextAudioTrack() {
-    final list = _activeTab == StreamTabMode.connect
-        ? _remoteCatalog.where((m) => m.type == StreamMediaType.audio).toList()
-        : _hostedMediaList.where((m) => m.type == StreamMediaType.audio).toList();
+    final list =
+        _activeTab == StreamTabMode.connect
+            ? _remoteCatalog
+                .where((m) => m.type == StreamMediaType.audio)
+                .toList()
+            : _hostedMediaList
+                .where((m) => m.type == StreamMediaType.audio)
+                .toList();
 
     if (list.isEmpty || _currentAudioItem == null) return;
     final currentIndex = list.indexWhere((m) => m.id == _currentAudioItem!.id);
     if (currentIndex != -1 && currentIndex + 1 < list.length) {
-      _playMediaItem(list[currentIndex + 1], isLocalHost: _activeTab == StreamTabMode.stream);
+      _playMediaItem(
+        list[currentIndex + 1],
+        isLocalHost: _activeTab == StreamTabMode.stream,
+      );
     } else if (list.isNotEmpty) {
-      _playMediaItem(list.first, isLocalHost: _activeTab == StreamTabMode.stream);
+      _playMediaItem(
+        list.first,
+        isLocalHost: _activeTab == StreamTabMode.stream,
+      );
     }
   }
 
   void _playPreviousAudioTrack() {
-    final list = _activeTab == StreamTabMode.connect
-        ? _remoteCatalog.where((m) => m.type == StreamMediaType.audio).toList()
-        : _hostedMediaList.where((m) => m.type == StreamMediaType.audio).toList();
+    final list =
+        _activeTab == StreamTabMode.connect
+            ? _remoteCatalog
+                .where((m) => m.type == StreamMediaType.audio)
+                .toList()
+            : _hostedMediaList
+                .where((m) => m.type == StreamMediaType.audio)
+                .toList();
 
     if (list.isEmpty || _currentAudioItem == null) return;
     final currentIndex = list.indexWhere((m) => m.id == _currentAudioItem!.id);
     if (currentIndex > 0) {
-      _playMediaItem(list[currentIndex - 1], isLocalHost: _activeTab == StreamTabMode.stream);
+      _playMediaItem(
+        list[currentIndex - 1],
+        isLocalHost: _activeTab == StreamTabMode.stream,
+      );
     }
   }
 
@@ -1105,17 +1283,19 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
       videoUrl = item.path;
     } else {
       final codeParam = _devicePin != null ? '&code=$_devicePin' : '';
-      videoUrl = 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media?id=${item.id}$codeParam';
+      videoUrl =
+          'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media?id=${item.id}$codeParam';
     }
 
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => VideoStreamPlayerModal(
-          mediaItem: item,
-          mediaUrl: videoUrl,
-          isLocal: isLocalHost,
-        ),
+        builder:
+            (context) => VideoStreamPlayerModal(
+              mediaItem: item,
+              mediaUrl: videoUrl,
+              isLocal: isLocalHost,
+            ),
       ),
     );
   }
@@ -1140,7 +1320,10 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
     return Scaffold(
       appBar: SpeedShareAppBar(
         title: 'SpeedShare Stream',
-        subtitle: _activeTab == StreamTabMode.stream ? 'Host Media Live' : 'Stream Media Direct',
+        subtitle:
+            _activeTab == StreamTabMode.stream
+                ? 'Host Media Live'
+                : 'Stream Media Direct',
       ),
       body: Column(
         children: [
@@ -1152,9 +1335,10 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
 
           // Main Tab Body
           Expanded(
-            child: _activeTab == StreamTabMode.connect
-                ? _buildConnectTab()
-                : _buildStreamHostTab(),
+            child:
+                _activeTab == StreamTabMode.connect
+                    ? _buildConnectTab()
+                    : _buildStreamHostTab(),
           ),
 
           // Persistent Audio Mini Player (if audio loaded)
@@ -1214,19 +1398,21 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(
-          color: isSelected
-              ? (isDark ? const Color(0xFF4E6AF3) : const Color(0xFF4E6AF3))
-              : Colors.transparent,
+          color:
+              isSelected
+                  ? (isDark ? const Color(0xFF4E6AF3) : const Color(0xFF4E6AF3))
+                  : Colors.transparent,
           borderRadius: BorderRadius.circular(10),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: const Color(0xFF4E6AF3).withValues(alpha: 0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ]
-              : null,
+          boxShadow:
+              isSelected
+                  ? [
+                    BoxShadow(
+                      color: const Color(0xFF4E6AF3).withValues(alpha: 0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                  : null,
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -1234,9 +1420,10 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
             Icon(
               icon,
               size: 18,
-              color: isSelected
-                  ? Colors.white
-                  : (isDark ? Colors.grey[400] : Colors.grey[700]),
+              color:
+                  isSelected
+                      ? Colors.white
+                      : (isDark ? Colors.grey[400] : Colors.grey[700]),
             ),
             const SizedBox(width: 6),
             Text(
@@ -1244,9 +1431,10 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-                color: isSelected
-                    ? Colors.white
-                    : (isDark ? Colors.grey[400] : Colors.grey[700]),
+                color:
+                    isSelected
+                        ? Colors.white
+                        : (isDark ? Colors.grey[400] : Colors.grey[700]),
               ),
             ),
           ],
@@ -1274,122 +1462,146 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-          // Header Card
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF4E6AF3).withValues(alpha: 0.12),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.wifi_tethering_rounded, color: Color(0xFF4E6AF3), size: 28),
-                  ),
-                  const SizedBox(width: 14),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Nearby Stream Hosts',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                        ),
-                        SizedBox(height: 2),
-                        Text(
-                          'Stream songs and movies directly without downloading them',
-                          style: TextStyle(fontSize: 12, color: Colors.grey),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.sync_rounded),
-                    tooltip: 'Refresh',
-                    onPressed: _sendStreamProbe,
-                  ),
-                ],
+            // Header Card
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
               ),
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Discovered Hosts List
-          if (_discoveredHosts.isEmpty)
-            Center(
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 40),
-                child: Column(
+                padding: const EdgeInsets.all(16),
+                child: Row(
                   children: [
-                    ScaleTransition(
-                      scale: _pulseAnimation,
-                      child: Container(
-                        padding: const EdgeInsets.all(24),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: const Color(0xFF4E6AF3).withValues(alpha: 0.08),
-                        ),
-                        child: const Icon(Icons.radar_rounded, size: 48, color: Color(0xFF4E6AF3)),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF4E6AF3).withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.wifi_tethering_rounded,
+                        color: Color(0xFF4E6AF3),
+                        size: 28,
                       ),
                     ),
-                    const SizedBox(height: 18),
-                    const Text(
-                      'Searching for streaming devices...',
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      'Make sure the host device has "Stream" active on the same Wi-Fi',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                    const SizedBox(height: 16),
-                    OutlinedButton.icon(
-                      onPressed: _showManualConnectDialog,
-                      icon: const Icon(Icons.link_rounded, size: 18),
-                      label: const Text('Connect with IP'),
-                      style: OutlinedButton.styleFrom(
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    const SizedBox(width: 14),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Nearby Stream Hosts',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Stream songs and movies directly without downloading them',
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        ],
                       ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.sync_rounded),
+                      tooltip: 'Refresh',
+                      onPressed: _sendStreamProbe,
                     ),
                   ],
                 ),
               ),
-            )
-          else ...[
-            Text(
-              'Discovered (${_discoveredHosts.length})',
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
             ),
-            const SizedBox(height: 8),
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _discoveredHosts.length,
-              itemBuilder: (context, index) {
-                final host = _discoveredHosts[index];
-                return _buildHostCard(host);
-              },
-            ),
-            const SizedBox(height: 12),
-            Center(
-              child: TextButton.icon(
-                onPressed: _showManualConnectDialog,
-                icon: const Icon(Icons.add_link_rounded, size: 16),
-                label: const Text('Manual IP Connect'),
+
+            const SizedBox(height: 16),
+
+            // Discovered Hosts List
+            if (_discoveredHosts.isEmpty)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  child: Column(
+                    children: [
+                      ScaleTransition(
+                        scale: _pulseAnimation,
+                        child: Container(
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: const Color(
+                              0xFF4E6AF3,
+                            ).withValues(alpha: 0.08),
+                          ),
+                          child: const Icon(
+                            Icons.radar_rounded,
+                            size: 48,
+                            color: Color(0xFF4E6AF3),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      const Text(
+                        'Searching for streaming devices...',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Make sure the host device has "Stream" active on the same Wi-Fi',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                      const SizedBox(height: 16),
+                      OutlinedButton.icon(
+                        onPressed: _showManualConnectDialog,
+                        icon: const Icon(Icons.link_rounded, size: 18),
+                        label: const Text('Connect with IP'),
+                        style: OutlinedButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else ...[
+              Text(
+                'Discovered (${_discoveredHosts.length})',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey,
+                ),
               ),
-            ),
+              const SizedBox(height: 8),
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _discoveredHosts.length,
+                itemBuilder: (context, index) {
+                  final host = _discoveredHosts[index];
+                  return _buildHostCard(host);
+                },
+              ),
+              const SizedBox(height: 12),
+              Center(
+                child: TextButton.icon(
+                  onPressed: _showManualConnectDialog,
+                  icon: const Icon(Icons.add_link_rounded, size: 16),
+                  label: const Text('Manual IP Connect'),
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _buildHostCard(StreamDevice host) {
     return Card(
@@ -1409,7 +1621,11 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
             ),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: const Icon(Icons.speaker_group_rounded, color: Colors.white, size: 22),
+          child: const Icon(
+            Icons.speaker_group_rounded,
+            color: Colors.white,
+            size: 22,
+          ),
         ),
         title: Text(
           host.name,
@@ -1419,13 +1635,24 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 3),
-            Text('${host.ip}:${host.port}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            Text(
+              '${host.ip}:${host.port}',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
             const SizedBox(height: 4),
             Row(
               children: [
-                _buildBadge(Icons.audiotrack_rounded, '${host.audioCount} Songs', const Color(0xFF4E6AF3)),
+                _buildBadge(
+                  Icons.audiotrack_rounded,
+                  '${host.audioCount} Songs',
+                  const Color(0xFF4E6AF3),
+                ),
                 const SizedBox(width: 6),
-                _buildBadge(Icons.videocam_rounded, '${host.videoCount} Videos', const Color(0xFF2AB673)),
+                _buildBadge(
+                  Icons.videocam_rounded,
+                  '${host.videoCount} Videos',
+                  const Color(0xFF2AB673),
+                ),
               ],
             ),
           ],
@@ -1435,10 +1662,15 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
           style: ElevatedButton.styleFrom(
             backgroundColor: const Color(0xFF4E6AF3),
             foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           ),
-          child: const Text('Browse', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          child: const Text(
+            'Browse',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+          ),
         ),
       ),
     );
@@ -1456,7 +1688,14 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
         children: [
           Icon(icon, size: 10, color: color),
           const SizedBox(width: 3),
-          Text(text, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: color)),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
         ],
       ),
     );
@@ -1468,70 +1707,79 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Connect to Stream Host'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: ipController,
-              decoration: const InputDecoration(
-                labelText: 'Host IP Address',
-                hintText: 'e.g. 192.168.1.5',
-                prefixIcon: Icon(Icons.wifi_rounded),
-              ),
+      builder:
+          (context) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: portController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Stream Port',
-                prefixIcon: Icon(Icons.settings_ethernet_rounded),
-              ),
+            title: const Text('Connect to Stream Host'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: ipController,
+                  decoration: const InputDecoration(
+                    labelText: 'Host IP Address',
+                    hintText: 'e.g. 192.168.1.5',
+                    prefixIcon: Icon(Icons.wifi_rounded),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: portController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Stream Port',
+                    prefixIcon: Icon(Icons.settings_ethernet_rounded),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  final ip = ipController.text.trim();
+                  final port = int.tryParse(portController.text.trim()) ?? 8084;
+                  if (ip.isNotEmpty) {
+                    Navigator.pop(context);
+                    final customHost = StreamDevice(
+                      name: 'Custom Host ($ip)',
+                      ip: ip,
+                      port: port,
+                      hasAccessCode: false,
+                      lastSeen: DateTime.now(),
+                    );
+                    _connectToHost(customHost);
+                  }
+                },
+                child: const Text('Connect'),
+              ),
+            ],
           ),
-          ElevatedButton(
-            onPressed: () {
-              final ip = ipController.text.trim();
-              final port = int.tryParse(portController.text.trim()) ?? 8084;
-              if (ip.isNotEmpty) {
-                Navigator.pop(context);
-                final customHost = StreamDevice(
-                  name: 'Custom Host ($ip)',
-                  ip: ip,
-                  port: port,
-                  hasAccessCode: false,
-                  lastSeen: DateTime.now(),
-                );
-                _connectToHost(customHost);
-              }
-            },
-            child: const Text('Connect'),
-          ),
-        ],
-      ),
     );
   }
 
   // --- REMOTE CATALOG VIEW (CONNECTED TO HOST) ---
 
   Widget _buildRemoteCatalogView() {
-    final filtered = _remoteCatalog.where((item) {
-      if (_selectedCategoryFilter == 'Music' && item.type != StreamMediaType.audio) return false;
-      if (_selectedCategoryFilter == 'Videos' && item.type != StreamMediaType.video) return false;
-      if (_searchQuery.isNotEmpty && !item.name.toLowerCase().contains(_searchQuery.toLowerCase())) {
-        return false;
-      }
-      return true;
-    }).toList();
+    final filtered =
+        _remoteCatalog.where((item) {
+          if (_selectedCategoryFilter == 'Music' &&
+              item.type != StreamMediaType.audio)
+            return false;
+          if (_selectedCategoryFilter == 'Videos' &&
+              item.type != StreamMediaType.video)
+            return false;
+          if (_searchQuery.isNotEmpty &&
+              !item.name.toLowerCase().contains(_searchQuery.toLowerCase())) {
+            return false;
+          }
+          return true;
+        }).toList();
 
     return Column(
       children: [
@@ -1539,10 +1787,13 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
-            color: Theme.of(context).brightness == Brightness.dark
-                ? Colors.grey[900]
-                : Colors.blue.withValues(alpha: 0.05),
-            border: Border(bottom: BorderSide(color: Colors.grey.withValues(alpha: 0.2))),
+            color:
+                Theme.of(context).brightness == Brightness.dark
+                    ? Colors.grey[900]
+                    : Colors.blue.withValues(alpha: 0.05),
+            border: Border(
+              bottom: BorderSide(color: Colors.grey.withValues(alpha: 0.2)),
+            ),
           ),
           child: Row(
             children: [
@@ -1552,7 +1803,11 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                   color: const Color(0xFF2AB673).withValues(alpha: 0.12),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.wifi_tethering_rounded, color: Color(0xFF2AB673), size: 20),
+                child: const Icon(
+                  Icons.wifi_tethering_rounded,
+                  color: Color(0xFF2AB673),
+                  size: 20,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -1561,7 +1816,10 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                   children: [
                     Text(
                       _connectedDevice!.name,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -1574,15 +1832,30 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
               ),
               OutlinedButton.icon(
                 onPressed: _disconnectFromHost,
-                icon: const Icon(Icons.link_off_rounded, size: 16, color: Colors.redAccent),
+                icon: const Icon(
+                  Icons.link_off_rounded,
+                  size: 16,
+                  color: Colors.redAccent,
+                ),
                 label: const Text(
                   'Disconnect',
-                  style: TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    color: Colors.redAccent,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.4)),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  side: BorderSide(
+                    color: Colors.redAccent.withValues(alpha: 0.4),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
               ),
             ],
@@ -1603,9 +1876,10 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(vertical: 10),
                     filled: true,
-                    fillColor: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.grey[800]
-                        : Colors.grey[100],
+                    fillColor:
+                        Theme.of(context).brightness == Brightness.dark
+                            ? Colors.grey[800]
+                            : Colors.grey[100],
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
@@ -1618,12 +1892,16 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
               const SizedBox(width: 4),
               _buildCategoryChip(
                 'Music',
-                _remoteCatalog.where((m) => m.type == StreamMediaType.audio).length,
+                _remoteCatalog
+                    .where((m) => m.type == StreamMediaType.audio)
+                    .length,
               ),
               const SizedBox(width: 4),
               _buildCategoryChip(
                 'Videos',
-                _remoteCatalog.where((m) => m.type == StreamMediaType.video).length,
+                _remoteCatalog
+                    .where((m) => m.type == StreamMediaType.video)
+                    .length,
               ),
             ],
           ),
@@ -1634,46 +1912,63 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
           child: RefreshIndicator(
             onRefresh: _fetchHostCatalog,
             color: const Color(0xFF4E6AF3),
-            child: _isLoadingCatalog
-                ? const Center(child: CircularProgressIndicator())
-                : filtered.isEmpty
+            child:
+                _isLoadingCatalog
+                    ? const Center(child: CircularProgressIndicator())
+                    : filtered.isEmpty
                     ? CustomScrollView(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        slivers: [
-                          SliverFillRemaining(
-                            child: Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.video_library_rounded, size: 50, color: Colors.grey[400]),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    _searchQuery.isNotEmpty
-                                        ? 'No matching media found'
-                                        : 'No media shared by host',
-                                    style: const TextStyle(color: Colors.grey, fontSize: 14),
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      slivers: [
+                        SliverFillRemaining(
+                          child: Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.video_library_rounded,
+                                  size: 50,
+                                  color: Colors.grey[400],
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  _searchQuery.isNotEmpty
+                                      ? 'No matching media found'
+                                      : 'No media shared by host',
+                                  style: const TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 14,
                                   ),
-                                  const SizedBox(height: 8),
-                                  const Text(
-                                    'Swipe down to refresh catalog',
-                                    style: TextStyle(color: Colors.grey, fontSize: 12),
+                                ),
+                                const SizedBox(height: 8),
+                                const Text(
+                                  'Swipe down to refresh catalog',
+                                  style: TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 12,
                                   ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
                           ),
-                        ],
-                      )
+                        ),
+                      ],
+                    )
                     : ListView.builder(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        itemCount: filtered.length,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                        itemBuilder: (context, index) {
-                          final item = filtered[index];
-                          final isPlayingThis = _currentAudioItem?.id == item.id;
-                          return _buildMediaItemTile(item, isPlayingThis: isPlayingThis);
-                        },
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      itemCount: filtered.length,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 6,
                       ),
+                      itemBuilder: (context, index) {
+                        final item = filtered[index];
+                        final isPlayingThis = _currentAudioItem?.id == item.id;
+                        return _buildMediaItemTile(
+                          item,
+                          isPlayingThis: isPlayingThis,
+                        );
+                      },
+                    ),
           ),
         ),
       ],
@@ -1698,16 +1993,20 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
     );
   }
 
-  Widget _buildMediaItemTile(StreamMediaItem item, {required bool isPlayingThis}) {
+  Widget _buildMediaItemTile(
+    StreamMediaItem item, {
+    required bool isPlayingThis,
+  }) {
     final isAudio = item.type == StreamMediaType.audio;
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       elevation: isPlayingThis ? 3 : 1,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: isPlayingThis
-            ? const BorderSide(color: Color(0xFF4E6AF3), width: 1.5)
-            : BorderSide.none,
+        side:
+            isPlayingThis
+                ? const BorderSide(color: Color(0xFF4E6AF3), width: 1.5)
+                : BorderSide.none,
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
@@ -1715,9 +2014,10 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
           width: 42,
           height: 42,
           decoration: BoxDecoration(
-            color: isAudio
-                ? const Color(0xFF4E6AF3).withValues(alpha: 0.15)
-                : const Color(0xFF2AB673).withValues(alpha: 0.15),
+            color:
+                isAudio
+                    ? const Color(0xFF4E6AF3).withValues(alpha: 0.15)
+                    : const Color(0xFF2AB673).withValues(alpha: 0.15),
             borderRadius: BorderRadius.circular(10),
           ),
           child: Icon(
@@ -1738,9 +2038,19 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
         ),
         subtitle: Row(
           children: [
-            Text(item.extension, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
+            Text(
+              item.extension,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey,
+              ),
+            ),
             const SizedBox(width: 8),
-            Text(_formatBytes(item.size), style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            Text(
+              _formatBytes(item.size),
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
+            ),
           ],
         ),
         trailing: Row(
@@ -1760,21 +2070,35 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                     : 'Stream',
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: isAudio && isPlayingThis
-                    ? const Color(0xFF2AB673)
-                    : const Color(0xFF4E6AF3),
+                backgroundColor:
+                    isAudio && isPlayingThis
+                        ? const Color(0xFF2AB673)
+                        : const Color(0xFF4E6AF3),
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
             PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert_rounded, size: 20, color: Colors.grey),
+              icon: const Icon(
+                Icons.more_vert_rounded,
+                size: 20,
+                color: Colors.grey,
+              ),
               tooltip: 'Options',
               onSelected: (val) {
                 final codeParam = _devicePin != null ? '&code=$_devicePin' : '';
-                final url = 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media?id=${item.id}$codeParam';
+                final url =
+                    'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media?id=${item.id}$codeParam';
 
                 if (val == 'external') {
                   if (isAudio && isPlayingThis && _isAudioPlaying) {
@@ -1791,28 +2115,37 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                   _showSnackBar('Stream URL copied to clipboard');
                 }
               },
-              itemBuilder: (ctx) => [
-                const PopupMenuItem(
-                  value: 'external',
-                  child: Row(
-                    children: [
-                      Icon(Icons.open_in_new_rounded, size: 18, color: Color(0xFF4E6AF3)),
-                      SizedBox(width: 8),
-                      Text('Play in VLC / External'),
-                    ],
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'copy',
-                  child: Row(
-                    children: [
-                      Icon(Icons.copy_rounded, size: 18, color: Colors.grey),
-                      SizedBox(width: 8),
-                      Text('Copy Stream URL'),
-                    ],
-                  ),
-                ),
-              ],
+              itemBuilder:
+                  (ctx) => [
+                    const PopupMenuItem(
+                      value: 'external',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.open_in_new_rounded,
+                            size: 18,
+                            color: Color(0xFF4E6AF3),
+                          ),
+                          SizedBox(width: 8),
+                          Text('Play in VLC / External'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'copy',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.copy_rounded,
+                            size: 18,
+                            color: Colors.grey,
+                          ),
+                          SizedBox(width: 8),
+                          Text('Copy Stream URL'),
+                        ],
+                      ),
+                    ),
+                  ],
             ),
           ],
         ),
@@ -1831,7 +2164,9 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
           // Host Status Card
           Card(
             elevation: 3,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
             child: Padding(
               padding: const EdgeInsets.all(18),
               child: Column(
@@ -1841,14 +2176,22 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: _isStreaming
-                              ? const Color(0xFF2AB673).withValues(alpha: 0.15)
-                              : Colors.grey.withValues(alpha: 0.15),
+                          color:
+                              _isStreaming
+                                  ? const Color(
+                                    0xFF2AB673,
+                                  ).withValues(alpha: 0.15)
+                                  : Colors.grey.withValues(alpha: 0.15),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
-                          _isStreaming ? Icons.podcasts_rounded : Icons.podcasts_outlined,
-                          color: _isStreaming ? const Color(0xFF2AB673) : Colors.grey,
+                          _isStreaming
+                              ? Icons.podcasts_rounded
+                              : Icons.podcasts_outlined,
+                          color:
+                              _isStreaming
+                                  ? const Color(0xFF2AB673)
+                                  : Colors.grey,
                           size: 32,
                         ),
                       ),
@@ -1858,15 +2201,23 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              _isStreaming ? 'Stream Server Active' : 'Stream Server Offline',
-                              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                              _isStreaming
+                                  ? 'Stream Server Active'
+                                  : 'Stream Server Offline',
+                              style: const TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                             const SizedBox(height: 2),
                             Text(
                               _isStreaming
                                   ? 'Broadcasting ${_hostedMediaList.length} items on port $_serverPort'
                                   : 'Select music & videos, then start streaming to nearby devices',
-                              style: const TextStyle(fontSize: 12, color: Colors.grey),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
                             ),
                           ],
                         ),
@@ -1877,16 +2228,27 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                   if (_isStreaming && _accessCode != null) ...[
                     const SizedBox(height: 16),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
                         color: const Color(0xFF4E6AF3).withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFF4E6AF3).withValues(alpha: 0.3)),
+                        border: Border.all(
+                          color: const Color(0xFF4E6AF3).withValues(alpha: 0.3),
+                        ),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text('Stream PIN Code:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                          const Text(
+                            'Stream PIN Code:',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
                           Row(
                             children: [
                               Text(
@@ -1899,10 +2261,16 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                                 ),
                               ),
                               IconButton(
-                                icon: const Icon(Icons.copy_rounded, size: 18, color: Color(0xFF4E6AF3)),
+                                icon: const Icon(
+                                  Icons.copy_rounded,
+                                  size: 18,
+                                  color: Color(0xFF4E6AF3),
+                                ),
                                 tooltip: 'Copy PIN',
                                 onPressed: () {
-                                  Clipboard.setData(ClipboardData(text: _accessCode!));
+                                  Clipboard.setData(
+                                    ClipboardData(text: _accessCode!),
+                                  );
                                   _showSnackBar('PIN copied to clipboard');
                                 },
                               ),
@@ -1919,16 +2287,30 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                     width: double.infinity,
                     child: ElevatedButton.icon(
                       onPressed: _toggleStreamServer,
-                      icon: Icon(_isStreaming ? Icons.stop_circle_rounded : Icons.play_circle_filled_rounded),
+                      icon: Icon(
+                        _isStreaming
+                            ? Icons.stop_circle_rounded
+                            : Icons.play_circle_filled_rounded,
+                      ),
                       label: Text(
-                        _isStreaming ? 'Stop Streaming' : 'Start Streaming Live',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                        _isStreaming
+                            ? 'Stop Streaming'
+                            : 'Start Streaming Live',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: _isStreaming ? Colors.redAccent : const Color(0xFF2AB673),
+                        backgroundColor:
+                            _isStreaming
+                                ? Colors.redAccent
+                                : const Color(0xFF2AB673),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
                       ),
                     ),
                   ),
@@ -1945,17 +2327,20 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: _isLoadingMedia ? null : _pickMediaFiles,
-                  icon: _isLoadingMedia
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.add_to_photos_rounded, size: 18),
+                  icon:
+                      _isLoadingMedia
+                          ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                          : const Icon(Icons.add_to_photos_rounded, size: 18),
                   label: Text(_isLoadingMedia ? 'Loading...' : 'Add Files'),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
               ),
@@ -1963,17 +2348,23 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: _isLoadingMedia ? null : _pickMediaFolder,
-                  icon: _isLoadingMedia
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.create_new_folder_rounded, size: 18),
+                  icon:
+                      _isLoadingMedia
+                          ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                          : const Icon(
+                            Icons.create_new_folder_rounded,
+                            size: 18,
+                          ),
                   label: Text(_isLoadingMedia ? 'Scanning...' : 'Add Folder'),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
               ),
@@ -1988,12 +2379,18 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
             children: [
               Text(
                 'Hosted Media (${_hostedMediaList.length})',
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               if (_hostedMediaList.isNotEmpty)
                 TextButton(
                   onPressed: _clearAllHostedMedia,
-                  child: const Text('Clear All', style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+                  child: const Text(
+                    'Clear All',
+                    style: TextStyle(color: Colors.redAccent, fontSize: 12),
+                  ),
                 ),
             ],
           ),
@@ -2003,19 +2400,26 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
           if (_isLoadingMedia)
             Card(
               elevation: 1,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
               child: const Padding(
                 padding: EdgeInsets.symmetric(vertical: 36, horizontal: 16),
                 child: Center(
                   child: Column(
                     children: [
                       CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF4E6AF3)),
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Color(0xFF4E6AF3),
+                        ),
                       ),
                       SizedBox(height: 16),
                       Text(
                         'Scanning media files…',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
                       ),
                       SizedBox(height: 4),
                       Text(
@@ -2031,17 +2435,29 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
           else if (_hostedMediaList.isEmpty)
             Card(
               elevation: 1,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 16),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 36,
+                  horizontal: 16,
+                ),
                 child: Center(
                   child: Column(
                     children: [
-                      Icon(Icons.queue_music_rounded, size: 48, color: Colors.grey[400]),
+                      Icon(
+                        Icons.queue_music_rounded,
+                        size: 48,
+                        color: Colors.grey[400],
+                      ),
                       const SizedBox(height: 12),
                       const Text(
                         'No music or video selected yet',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       const Text(
@@ -2065,27 +2481,45 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),
                   elevation: 1,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 2,
+                    ),
                     leading: Container(
                       width: 38,
                       height: 38,
                       decoration: BoxDecoration(
-                        color: isAudio
-                            ? const Color(0xFF4E6AF3).withValues(alpha: 0.15)
-                            : const Color(0xFF2AB673).withValues(alpha: 0.15),
+                        color:
+                            isAudio
+                                ? const Color(
+                                  0xFF4E6AF3,
+                                ).withValues(alpha: 0.15)
+                                : const Color(
+                                  0xFF2AB673,
+                                ).withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Icon(
-                        isAudio ? Icons.music_note_rounded : Icons.movie_rounded,
-                        color: isAudio ? const Color(0xFF4E6AF3) : const Color(0xFF2AB673),
+                        isAudio
+                            ? Icons.music_note_rounded
+                            : Icons.movie_rounded,
+                        color:
+                            isAudio
+                                ? const Color(0xFF4E6AF3)
+                                : const Color(0xFF2AB673),
                         size: 20,
                       ),
                     ),
                     title: Text(
                       item.name,
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -2097,22 +2531,37 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         IconButton(
-                          icon: const Icon(Icons.play_circle_outline_rounded, size: 22, color: Color(0xFF4E6AF3)),
-                          tooltip: 'Preview',
-                          onPressed: () => _playMediaItem(item, isLocalHost: true),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.open_in_new_rounded, size: 20, color: Color(0xFF2AB673)),
-                          tooltip: 'Play in VLC / External Player',
-                          onPressed: () => VideoStreamPlayerModal.openMediaInExternalPlayer(
-                            context: context,
-                            mediaItem: item,
-                            mediaUrl: item.path,
-                            isLocal: true,
+                          icon: const Icon(
+                            Icons.play_circle_outline_rounded,
+                            size: 22,
+                            color: Color(0xFF4E6AF3),
                           ),
+                          tooltip: 'Preview',
+                          onPressed:
+                              () => _playMediaItem(item, isLocalHost: true),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.close_rounded, size: 18, color: Colors.grey),
+                          icon: const Icon(
+                            Icons.open_in_new_rounded,
+                            size: 20,
+                            color: Color(0xFF2AB673),
+                          ),
+                          tooltip: 'Play in VLC / External Player',
+                          onPressed:
+                              () =>
+                                  VideoStreamPlayerModal.openMediaInExternalPlayer(
+                                    context: context,
+                                    mediaItem: item,
+                                    mediaUrl: item.path,
+                                    isLocal: true,
+                                  ),
+                        ),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.close_rounded,
+                            size: 18,
+                            color: Colors.grey,
+                          ),
                           tooltip: 'Remove',
                           onPressed: () => _removeHostedMedia(item.id),
                         ),
@@ -2141,10 +2590,23 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                   margin: const EdgeInsets.only(bottom: 6),
                   child: ListTile(
                     dense: true,
-                    leading: const Icon(Icons.headphones_rounded, color: Color(0xFF2AB673)),
-                    title: Text(client.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text('Streaming: ${client.currentPlaying}', style: const TextStyle(fontSize: 11)),
-                    trailing: const Icon(Icons.fiber_manual_record_rounded, size: 12, color: Color(0xFF2AB673)),
+                    leading: const Icon(
+                      Icons.headphones_rounded,
+                      color: Color(0xFF2AB673),
+                    ),
+                    title: Text(
+                      client.name,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(
+                      'Streaming: ${client.currentPlaying}',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                    trailing: const Icon(
+                      Icons.fiber_manual_record_rounded,
+                      size: 12,
+                      color: Color(0xFF2AB673),
+                    ),
                   ),
                 );
               },
@@ -2175,7 +2637,10 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
             ),
           ],
           border: Border(
-            top: BorderSide(color: const Color(0xFF4E6AF3).withValues(alpha: 0.3), width: 1),
+            top: BorderSide(
+              color: const Color(0xFF4E6AF3).withValues(alpha: 0.3),
+              width: 1,
+            ),
           ),
         ),
         child: SafeArea(
@@ -2185,12 +2650,17 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
             children: [
               // Mini progress line
               LinearProgressIndicator(
-                value: _audioDuration.inMilliseconds > 0
-                    ? (_audioPosition.inMilliseconds / _audioDuration.inMilliseconds).clamp(0.0, 1.0)
-                    : 0.0,
+                value:
+                    _audioDuration.inMilliseconds > 0
+                        ? (_audioPosition.inMilliseconds /
+                                _audioDuration.inMilliseconds)
+                            .clamp(0.0, 1.0)
+                        : 0.0,
                 minHeight: 2.5,
                 backgroundColor: Colors.grey.withValues(alpha: 0.2),
-                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF4E6AF3)),
+                valueColor: const AlwaysStoppedAnimation<Color>(
+                  Color(0xFF4E6AF3),
+                ),
               ),
               const SizedBox(height: 6),
               Row(
@@ -2208,7 +2678,11 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                         shape: BoxShape.circle,
                       ),
                       child: const Center(
-                        child: Icon(Icons.music_note_rounded, color: Colors.white, size: 20),
+                        child: Icon(
+                          Icons.music_note_rounded,
+                          color: Colors.white,
+                          size: 20,
+                        ),
                       ),
                     ),
                   ),
@@ -2219,13 +2693,19 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                       children: [
                         Text(
                           item.name,
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                         Text(
                           '${_formatDuration(_audioPosition)} / ${_formatDuration(_audioDuration)}',
-                          style: const TextStyle(fontSize: 11, color: Colors.grey),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey,
+                          ),
                         ),
                       ],
                     ),
@@ -2236,7 +2716,9 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                   ),
                   IconButton(
                     icon: Icon(
-                      _isAudioPlaying ? Icons.pause_circle_filled_rounded : Icons.play_circle_fill_rounded,
+                      _isAudioPlaying
+                          ? Icons.pause_circle_filled_rounded
+                          : Icons.play_circle_fill_rounded,
                       size: 36,
                       color: const Color(0xFF4E6AF3),
                     ),
@@ -2253,16 +2735,22 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
                     onPressed: _playNextAudioTrack,
                   ),
                   IconButton(
-                    icon: const Icon(Icons.open_in_new_rounded, size: 20, color: Color(0xFF4E6AF3)),
+                    icon: const Icon(
+                      Icons.open_in_new_rounded,
+                      size: 20,
+                      color: Color(0xFF4E6AF3),
+                    ),
                     tooltip: 'Play in VLC / External Player',
                     onPressed: () {
                       final item = _currentAudioItem;
                       if (item == null) return;
                       final isLocal = _activeTab == StreamTabMode.stream;
-                      final codeParam = _devicePin != null ? '&code=$_devicePin' : '';
-                      final url = isLocal
-                          ? item.path
-                          : 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media?id=${item.id}$codeParam';
+                      final codeParam =
+                          _devicePin != null ? '&code=$_devicePin' : '';
+                      final url =
+                          isLocal
+                              ? item.path
+                              : 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media?id=${item.id}$codeParam';
                       _audioPlayer.pause();
                       VideoStreamPlayerModal.openMediaInExternalPlayer(
                         context: context,
@@ -2293,202 +2781,266 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) {
-          final isDark = Theme.of(context).brightness == Brightness.dark;
-          final item = _currentAudioItem;
-          if (item == null) return const SizedBox.shrink();
+      builder:
+          (context) => StatefulBuilder(
+            builder: (context, setModalState) {
+              final isDark = Theme.of(context).brightness == Brightness.dark;
+              final item = _currentAudioItem;
+              if (item == null) return const SizedBox.shrink();
 
-          return Container(
-            height: MediaQuery.of(context).size.height * 0.75,
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF181824) : Colors.white,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-            ),
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              children: [
-                Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey.withValues(alpha: 0.4),
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          final isLocal = _activeTab == StreamTabMode.stream;
-                          final codeParam = _devicePin != null ? '&code=$_devicePin' : '';
-                          final url = isLocal
-                              ? item.path
-                              : 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media?id=${item.id}$codeParam';
-                          _audioPlayer.pause();
-                          setModalState(() {});
-                          setState(() {});
-                          VideoStreamPlayerModal.openMediaInExternalPlayer(
-                            context: context,
-                            mediaItem: item,
-                            mediaUrl: url,
-                            isLocal: isLocal,
-                          );
-                        },
-                        icon: const Icon(Icons.open_in_new_rounded, size: 14, color: Color(0xFF4E6AF3)),
-                        label: const Text('Play in VLC', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                      ),
-                    ),
-                  ],
+              return Container(
+                height: MediaQuery.of(context).size.height * 0.75,
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF181824) : Colors.white,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(28),
+                  ),
                 ),
-                const SizedBox(height: 24),
-                // Vinyl Disc / Artwork Display
-                Expanded(
-                  child: Center(
-                    child: RotationTransition(
-                      turns: _discRotationController,
-                      child: Container(
-                        width: 220,
-                        height: 220,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: const RadialGradient(
-                            colors: [
-                              Color(0xFF2B2B36),
-                              Color(0xFF111118),
-                              Color(0xFF4E6AF3),
-                            ],
-                            stops: [0.0, 0.85, 1.0],
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF4E6AF3).withValues(alpha: 0.35),
-                              blurRadius: 30,
-                              spreadRadius: 4,
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  children: [
+                    Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 40,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: Colors.grey.withValues(alpha: 0.4),
+                              borderRadius: BorderRadius.circular(2),
                             ),
-                          ],
+                          ),
                         ),
-                        child: const Center(
-                          child: Icon(Icons.album_rounded, size: 90, color: Colors.white70),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              final isLocal =
+                                  _activeTab == StreamTabMode.stream;
+                              final codeParam =
+                                  _devicePin != null ? '&code=$_devicePin' : '';
+                              final url =
+                                  isLocal
+                                      ? item.path
+                                      : 'http://${_connectedDevice!.ip}:${_connectedDevice!.port}/api/stream/media?id=${item.id}$codeParam';
+                              _audioPlayer.pause();
+                              setModalState(() {});
+                              setState(() {});
+                              VideoStreamPlayerModal.openMediaInExternalPlayer(
+                                context: context,
+                                mediaItem: item,
+                                mediaUrl: url,
+                                isLocal: isLocal,
+                              );
+                            },
+                            icon: const Icon(
+                              Icons.open_in_new_rounded,
+                              size: 14,
+                              color: Color(0xFF4E6AF3),
+                            ),
+                            label: const Text(
+                              'Play in VLC',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    // Vinyl Disc / Artwork Display
+                    Expanded(
+                      child: Center(
+                        child: RotationTransition(
+                          turns: _discRotationController,
+                          child: Container(
+                            width: 220,
+                            height: 220,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: const RadialGradient(
+                                colors: [
+                                  Color(0xFF2B2B36),
+                                  Color(0xFF111118),
+                                  Color(0xFF4E6AF3),
+                                ],
+                                stops: [0.0, 0.85, 1.0],
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(
+                                    0xFF4E6AF3,
+                                  ).withValues(alpha: 0.35),
+                                  blurRadius: 30,
+                                  spreadRadius: 4,
+                                ),
+                              ],
+                            ),
+                            child: const Center(
+                              child: Icon(
+                                Icons.album_rounded,
+                                size: 90,
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  item.name,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _activeTab == StreamTabMode.connect
-                      ? 'Live Streaming from ${_connectedDevice?.name ?? "Host"}'
-                      : 'Local Audio Stream Host',
-                  style: const TextStyle(fontSize: 13, color: Colors.grey),
-                ),
-                const SizedBox(height: 16),
-                // Scrubber Bar
-                Slider(
-                  value: _audioDuration.inMilliseconds > 0
-                      ? _audioPosition.inMilliseconds.clamp(0, _audioDuration.inMilliseconds).toDouble()
-                      : 0.0,
-                  max: _audioDuration.inMilliseconds > 0 ? _audioDuration.inMilliseconds.toDouble() : 1.0,
-                  activeColor: const Color(0xFF4E6AF3),
-                  onChanged: (val) {
-                    _audioPlayer.seek(Duration(milliseconds: val.toInt()));
-                  },
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(_formatDuration(_audioPosition), style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                      Text(_formatDuration(_audioDuration), style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                // Playback Controls
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    IconButton(
-                      icon: Icon(
-                        _isAudioLoop ? Icons.repeat_one_rounded : Icons.repeat_rounded,
-                        color: _isAudioLoop ? const Color(0xFF4E6AF3) : Colors.grey,
+                    const SizedBox(height: 16),
+                    Text(
+                      item.name,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
                       ),
-                      onPressed: () {
-                        setState(() => _isAudioLoop = !_isAudioLoop);
-                        setModalState(() {});
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _activeTab == StreamTabMode.connect
+                          ? 'Live Streaming from ${_connectedDevice?.name ?? "Host"}'
+                          : 'Local Audio Stream Host',
+                      style: const TextStyle(fontSize: 13, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 16),
+                    // Scrubber Bar
+                    Slider(
+                      value:
+                          _audioDuration.inMilliseconds > 0
+                              ? _audioPosition.inMilliseconds
+                                  .clamp(0, _audioDuration.inMilliseconds)
+                                  .toDouble()
+                              : 0.0,
+                      max:
+                          _audioDuration.inMilliseconds > 0
+                              ? _audioDuration.inMilliseconds.toDouble()
+                              : 1.0,
+                      activeColor: const Color(0xFF4E6AF3),
+                      onChanged: (val) {
+                        _audioPlayer.seek(Duration(milliseconds: val.toInt()));
                       },
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.skip_previous_rounded, size: 36),
-                      onPressed: () {
-                        _playPreviousAudioTrack();
-                        setModalState(() {});
-                      },
-                    ),
-                    Container(
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(colors: [Color(0xFF4E6AF3), Color(0xFF2AB673)]),
-                        shape: BoxShape.circle,
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _formatDuration(_audioPosition),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          ),
+                          Text(
+                            _formatDuration(_audioDuration),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
                       ),
-                      child: IconButton(
-                        icon: Icon(
-                          _isAudioPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                          size: 40,
-                          color: Colors.white,
+                    ),
+                    const SizedBox(height: 12),
+                    // Playback Controls
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        IconButton(
+                          icon: Icon(
+                            _isAudioLoop
+                                ? Icons.repeat_one_rounded
+                                : Icons.repeat_rounded,
+                            color:
+                                _isAudioLoop
+                                    ? const Color(0xFF4E6AF3)
+                                    : Colors.grey,
+                          ),
+                          onPressed: () {
+                            setState(() => _isAudioLoop = !_isAudioLoop);
+                            setModalState(() {});
+                          },
                         ),
-                        onPressed: () {
-                          if (_isAudioPlaying) {
-                            _audioPlayer.pause();
-                          } else {
-                            _audioPlayer.resume();
-                          }
-                          setModalState(() {});
-                        },
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.skip_next_rounded, size: 36),
-                      onPressed: () {
-                        _playNextAudioTrack();
-                        setModalState(() {});
-                      },
-                    ),
-                    IconButton(
-                      icon: Icon(_audioVolume > 0 ? Icons.volume_up_rounded : Icons.volume_off_rounded),
-                      onPressed: () {
-                        final newVol = _audioVolume > 0 ? 0.0 : 1.0;
-                        _audioPlayer.setVolume(newVol);
-                        setState(() => _audioVolume = newVol);
-                        setModalState(() {});
-                      },
+                        IconButton(
+                          icon: const Icon(
+                            Icons.skip_previous_rounded,
+                            size: 36,
+                          ),
+                          onPressed: () {
+                            _playPreviousAudioTrack();
+                            setModalState(() {});
+                          },
+                        ),
+                        Container(
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [Color(0xFF4E6AF3), Color(0xFF2AB673)],
+                            ),
+                            shape: BoxShape.circle,
+                          ),
+                          child: IconButton(
+                            icon: Icon(
+                              _isAudioPlaying
+                                  ? Icons.pause_rounded
+                                  : Icons.play_arrow_rounded,
+                              size: 40,
+                              color: Colors.white,
+                            ),
+                            onPressed: () {
+                              if (_isAudioPlaying) {
+                                _audioPlayer.pause();
+                              } else {
+                                _audioPlayer.resume();
+                              }
+                              setModalState(() {});
+                            },
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.skip_next_rounded, size: 36),
+                          onPressed: () {
+                            _playNextAudioTrack();
+                            setModalState(() {});
+                          },
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            _audioVolume > 0
+                                ? Icons.volume_up_rounded
+                                : Icons.volume_off_rounded,
+                          ),
+                          onPressed: () {
+                            final newVol = _audioVolume > 0 ? 0.0 : 1.0;
+                            _audioPlayer.setVolume(newVol);
+                            setState(() => _audioVolume = newVol);
+                            setModalState(() {});
+                          },
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
-            ),
-          );
-        },
-      ),
+              );
+            },
+          ),
     );
   }
 
@@ -2555,7 +3107,12 @@ class VideoStreamPlayerModal extends StatefulWidget {
       // 2. Windows: launch VLC command line
       if (Platform.isWindows) {
         try {
-          final res = await Process.run('cmd', ['/c', 'start', 'vlc', mediaUrl]);
+          final res = await Process.run('cmd', [
+            '/c',
+            'start',
+            'vlc',
+            mediaUrl,
+          ]);
           if (res.exitCode == 0) return;
         } catch (_) {}
       }
@@ -2565,14 +3122,18 @@ class VideoStreamPlayerModal extends StatefulWidget {
       if (Platform.isAndroid) {
         final urlNoHttp = mediaUrl.replaceFirst(RegExp(r'^https?:\/\/'), '');
         final scheme = mediaUrl.startsWith('https://') ? 'https' : 'http';
-        final mimeType = mediaItem.type == StreamMediaType.audio ? 'audio/*' : 'video/*';
+        final mimeType =
+            mediaItem.type == StreamMediaType.audio ? 'audio/*' : 'video/*';
 
         // 3a. Target VLC for Android directly
         try {
           final vlcIntentUri = Uri.parse(
             'intent://$urlNoHttp#Intent;scheme=$scheme;type=$mimeType;package=org.videolan.vlc;end',
           );
-          launched = await launchUrl(vlcIntentUri, mode: LaunchMode.externalNonBrowserApplication);
+          launched = await launchUrl(
+            vlcIntentUri,
+            mode: LaunchMode.externalNonBrowserApplication,
+          );
         } catch (_) {}
 
         // 3b. If not launched, target any installed media player (excludes web browsers)
@@ -2581,7 +3142,10 @@ class VideoStreamPlayerModal extends StatefulWidget {
             final genericMediaIntentUri = Uri.parse(
               'intent://$urlNoHttp#Intent;scheme=$scheme;type=$mimeType;end',
             );
-            launched = await launchUrl(genericMediaIntentUri, mode: LaunchMode.externalNonBrowserApplication);
+            launched = await launchUrl(
+              genericMediaIntentUri,
+              mode: LaunchMode.externalNonBrowserApplication,
+            );
           } catch (_) {}
         }
       }
@@ -2591,7 +3155,10 @@ class VideoStreamPlayerModal extends StatefulWidget {
         try {
           final vlcUri = Uri.parse('vlc://$mediaUrl');
           if (await canLaunchUrl(vlcUri)) {
-            launched = await launchUrl(vlcUri, mode: LaunchMode.externalNonBrowserApplication);
+            launched = await launchUrl(
+              vlcUri,
+              mode: LaunchMode.externalNonBrowserApplication,
+            );
           }
         } catch (_) {}
       }
@@ -2602,100 +3169,121 @@ class VideoStreamPlayerModal extends StatefulWidget {
         final isAudio = mediaItem.type == StreamMediaType.audio;
         showDialog(
           context: context,
-          builder: (dialogCtx) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: Row(
-              children: [
-                Icon(
-                  isAudio ? Icons.music_note_rounded : Icons.video_library_rounded,
-                  color: const Color(0xFF4E6AF3),
+          builder:
+              (dialogCtx) => AlertDialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                const SizedBox(width: 8),
-                const Text('Open in External Player', style: TextStyle(fontSize: 16)),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  isAudio
-                      ? 'No external media player (like VLC) was found on your device to open this audio stream.'
-                      : 'No media player (like VLC or MX Player) was found on your device to open this stream.',
-                  style: const TextStyle(fontSize: 13),
+                title: Row(
+                  children: [
+                    Icon(
+                      isAudio
+                          ? Icons.music_note_rounded
+                          : Icons.video_library_rounded,
+                      color: const Color(0xFF4E6AF3),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Open in External Player',
+                      style: TextStyle(fontSize: 16),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                const Text(
-                  'You can copy the stream URL and paste it into VLC (Media > Open Network Stream):',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isAudio
+                          ? 'No external media player (like VLC) was found on your device to open this audio stream.'
+                          : 'No media player (like VLC or MX Player) was found on your device to open this stream.',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'You can copy the stream URL and paste it into VLC (Media > Open Network Stream):',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.black12,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: SelectableText(
+                        mediaUrl,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.black12,
-                    borderRadius: BorderRadius.circular(8),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: mediaUrl));
+                      Navigator.pop(dialogCtx);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Stream URL copied to clipboard!'),
+                        ),
+                      );
+                    },
+                    child: const Text('Copy URL'),
                   ),
-                  child: SelectableText(
-                    mediaUrl,
-                    style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(dialogCtx);
+                      launchUrl(
+                        Uri.parse(mediaUrl),
+                        mode: LaunchMode.externalApplication,
+                      );
+                    },
+                    child: const Text(
+                      'Open in Browser',
+                      style: TextStyle(color: Colors.grey),
+                    ),
                   ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Clipboard.setData(ClipboardData(text: mediaUrl));
-                  Navigator.pop(dialogCtx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Stream URL copied to clipboard!')),
-                  );
-                },
-                child: const Text('Copy URL'),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(dialogCtx);
+                      if (Platform.isAndroid) {
+                        launchUrl(
+                          Uri.parse('market://details?id=org.videolan.vlc'),
+                          mode: LaunchMode.externalApplication,
+                        );
+                      } else if (Platform.isIOS) {
+                        launchUrl(
+                          Uri.parse(
+                            'https://apps.apple.com/app/vlc-media-player/id650377962',
+                          ),
+                          mode: LaunchMode.externalApplication,
+                        );
+                      } else {
+                        launchUrl(
+                          Uri.parse('https://www.videolan.org/vlc/'),
+                          mode: LaunchMode.externalApplication,
+                        );
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4E6AF3),
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Get VLC'),
+                  ),
+                ],
               ),
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(dialogCtx);
-                  launchUrl(Uri.parse(mediaUrl), mode: LaunchMode.externalApplication);
-                },
-                child: const Text('Open in Browser', style: TextStyle(color: Colors.grey)),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(dialogCtx);
-                  if (Platform.isAndroid) {
-                    launchUrl(
-                      Uri.parse('market://details?id=org.videolan.vlc'),
-                      mode: LaunchMode.externalApplication,
-                    );
-                  } else if (Platform.isIOS) {
-                    launchUrl(
-                      Uri.parse('https://apps.apple.com/app/vlc-media-player/id650377962'),
-                      mode: LaunchMode.externalApplication,
-                    );
-                  } else {
-                    launchUrl(
-                      Uri.parse('https://www.videolan.org/vlc/'),
-                      mode: LaunchMode.externalApplication,
-                    );
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF4E6AF3),
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('Get VLC'),
-              ),
-            ],
-          ),
         );
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error launching player: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error launching player: $e')));
       }
     }
   }
@@ -2725,7 +3313,9 @@ class _VideoStreamPlayerModalState extends State<VideoStreamPlayerModal> {
       if (widget.isLocal) {
         _controller = VideoPlayerController.file(File(widget.mediaUrl));
       } else {
-        _controller = VideoPlayerController.networkUrl(Uri.parse(widget.mediaUrl));
+        _controller = VideoPlayerController.networkUrl(
+          Uri.parse(widget.mediaUrl),
+        );
       }
 
       await _controller.initialize();
@@ -2852,77 +3442,126 @@ class _VideoStreamPlayerModalState extends State<VideoStreamPlayerModal> {
               children: [
                 // Video Surface
                 Center(
-                  child: _isInitialized
-                      ? AspectRatio(
-                          aspectRatio: _controller.value.aspectRatio,
-                          child: VideoPlayer(_controller),
-                        )
-                      : _hasError
+                  child:
+                      _isInitialized
+                          ? AspectRatio(
+                            aspectRatio: _controller.value.aspectRatio,
+                            child: VideoPlayer(_controller),
+                          )
+                          : _hasError
                           ? Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.movie_filter_rounded, color: Colors.orangeAccent, size: 54),
-                                  const SizedBox(height: 14),
-                                  const Text(
-                                    'Cannot Play Video In-App',
-                                    style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24,
+                              vertical: 16,
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.movie_filter_rounded,
+                                  color: Colors.orangeAccent,
+                                  size: 54,
+                                ),
+                                const SizedBox(height: 14),
+                                const Text(
+                                  'Cannot Play Video In-App',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.bold,
                                   ),
-                                  const SizedBox(height: 8),
-                                  const Text(
-                                    'MKV containers or audio codecs (like Dolby AC3 / DTS) are not supported by Android\'s native player.\nPlay it with VLC or MX Player instead.',
+                                ),
+                                const SizedBox(height: 8),
+                                const Text(
+                                  'MKV containers or audio codecs (like Dolby AC3 / DTS) are not supported by Android\'s native player.\nPlay it with VLC or MX Player instead.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                if (_errorMessage.isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    _errorMessage,
                                     textAlign: TextAlign.center,
-                                    style: TextStyle(color: Colors.white70, fontSize: 12),
-                                  ),
-                                  if (_errorMessage.isNotEmpty) ...[
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      _errorMessage,
-                                      textAlign: TextAlign.center,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(color: Colors.white38, fontSize: 10),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white38,
+                                      fontSize: 10,
                                     ),
-                                  ],
-                                  const SizedBox(height: 20),
-                                  ElevatedButton.icon(
-                                    onPressed: _openExternalPlayer,
-                                    icon: const Icon(Icons.play_circle_fill_rounded, size: 20),
-                                    label: const Text('Play in VLC / External Player'),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFF4E6AF3),
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  OutlinedButton.icon(
-                                    onPressed: () {
-                                      Clipboard.setData(ClipboardData(text: widget.mediaUrl));
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Stream URL copied! Paste into VLC Network Stream.')),
-                                      );
-                                    },
-                                    icon: const Icon(Icons.copy_rounded, size: 16),
-                                    label: const Text('Copy Stream URL'),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: Colors.white70,
-                                      side: const BorderSide(color: Colors.white30),
-                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(context),
-                                    child: const Text('Close', style: TextStyle(color: Colors.grey)),
                                   ),
                                 ],
-                              ),
-                            )
-                          : const CircularProgressIndicator(color: Color(0xFF4E6AF3)),
+                                const SizedBox(height: 20),
+                                ElevatedButton.icon(
+                                  onPressed: _openExternalPlayer,
+                                  icon: const Icon(
+                                    Icons.play_circle_fill_rounded,
+                                    size: 20,
+                                  ),
+                                  label: const Text(
+                                    'Play in VLC / External Player',
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF4E6AF3),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 20,
+                                      vertical: 12,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                OutlinedButton.icon(
+                                  onPressed: () {
+                                    Clipboard.setData(
+                                      ClipboardData(text: widget.mediaUrl),
+                                    );
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Stream URL copied! Paste into VLC Network Stream.',
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  icon: const Icon(
+                                    Icons.copy_rounded,
+                                    size: 16,
+                                  ),
+                                  label: const Text('Copy Stream URL'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.white70,
+                                    side: const BorderSide(
+                                      color: Colors.white30,
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 8,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context),
+                                  child: const Text(
+                                    'Close',
+                                    style: TextStyle(color: Colors.grey),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                          : const CircularProgressIndicator(
+                            color: Color(0xFF4E6AF3),
+                          ),
                 ),
 
                 // Overlay Controls
@@ -2934,52 +3573,97 @@ class _VideoStreamPlayerModalState extends State<VideoStreamPlayerModal> {
                       children: [
                         // Top Bar
                         Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
                           child: Row(
                             children: [
                               IconButton(
-                                icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+                                icon: const Icon(
+                                  Icons.arrow_back_rounded,
+                                  color: Colors.white,
+                                ),
                                 onPressed: () => Navigator.pop(context),
                               ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
                                   widget.mediaItem.name,
-                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                               OutlinedButton.icon(
                                 onPressed: _openExternalPlayer,
-                                icon: const Icon(Icons.open_in_new_rounded, size: 15, color: Colors.white),
-                                label: const Text('Play in VLC', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                                icon: const Icon(
+                                  Icons.open_in_new_rounded,
+                                  size: 15,
+                                  color: Colors.white,
+                                ),
+                                label: const Text(
+                                  'Play in VLC',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: Colors.white,
-                                  side: const BorderSide(color: Colors.white54, width: 1),
+                                  side: const BorderSide(
+                                    color: Colors.white54,
+                                    width: 1,
+                                  ),
                                   backgroundColor: Colors.black45,
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 8),
                               PopupMenuButton<double>(
                                 icon: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: Colors.white24,
                                     borderRadius: BorderRadius.circular(8),
                                   ),
-                                  child: Text('${_playbackSpeed}x', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                                  child: Text(
+                                    '${_playbackSpeed}x',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
                                 ),
                                 onSelected: (speed) {
                                   _controller.setPlaybackSpeed(speed);
                                   setState(() => _playbackSpeed = speed);
                                 },
-                                itemBuilder: (context) => [0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((s) => PopupMenuItem(
-                                  value: s,
-                                  child: Text('${s}x'),
-                                )).toList(),
+                                itemBuilder:
+                                    (context) =>
+                                        [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+                                            .map(
+                                              (s) => PopupMenuItem(
+                                                value: s,
+                                                child: Text('${s}x'),
+                                              ),
+                                            )
+                                            .toList(),
                               ),
                             ],
                           ),
@@ -2990,7 +3674,11 @@ class _VideoStreamPlayerModalState extends State<VideoStreamPlayerModal> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             IconButton(
-                              icon: const Icon(Icons.replay_10_rounded, color: Colors.white, size: 36),
+                              icon: const Icon(
+                                Icons.replay_10_rounded,
+                                color: Colors.white,
+                                size: 36,
+                              ),
                               onPressed: () => _seekRelative(-10),
                             ),
                             const SizedBox(width: 24),
@@ -3001,7 +3689,9 @@ class _VideoStreamPlayerModalState extends State<VideoStreamPlayerModal> {
                               ),
                               child: IconButton(
                                 icon: Icon(
-                                  _controller.value.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                                  _controller.value.isPlaying
+                                      ? Icons.pause_rounded
+                                      : Icons.play_arrow_rounded,
                                   color: Colors.white,
                                   size: 42,
                                 ),
@@ -3010,7 +3700,11 @@ class _VideoStreamPlayerModalState extends State<VideoStreamPlayerModal> {
                             ),
                             const SizedBox(width: 24),
                             IconButton(
-                              icon: const Icon(Icons.forward_10_rounded, color: Colors.white, size: 36),
+                              icon: const Icon(
+                                Icons.forward_10_rounded,
+                                color: Colors.white,
+                                size: 36,
+                              ),
                               onPressed: () => _seekRelative(10),
                             ),
                           ],
@@ -3018,14 +3712,19 @@ class _VideoStreamPlayerModalState extends State<VideoStreamPlayerModal> {
 
                         // Bottom Scrubber Bar
                         Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               VideoProgressIndicator(
                                 _controller,
                                 allowScrubbing: true,
-                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8,
+                                ),
                                 colors: const VideoProgressColors(
                                   playedColor: Color(0xFF4E6AF3),
                                   bufferedColor: Colors.white30,
@@ -3034,15 +3733,22 @@ class _VideoStreamPlayerModalState extends State<VideoStreamPlayerModal> {
                               ),
                               const SizedBox(height: 8),
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
                                   Text(
                                     _formatDuration(_controller.value.position),
-                                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                    ),
                                   ),
                                   Text(
                                     _formatDuration(_controller.value.duration),
-                                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                    ),
                                   ),
                                 ],
                               ),
