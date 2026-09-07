@@ -840,13 +840,23 @@ class ReceiveScreenState extends State<ReceiveScreen>
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).clearSnackBars();
+      String errorMsg = 'Error: $e';
+      if (e is SocketException) {
+        final code = e.osError?.errorCode;
+        if (code == 10048 || code == 98 || code == 48) {
+          errorMsg =
+              'Port is already in use. Another instance of SpeedShare or another program is already running.';
+        }
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(
             children: [
               const Icon(Icons.error_rounded, color: Colors.white),
               const SizedBox(width: 10),
-              Text('Error: $e'),
+              Expanded(
+                child: Text(errorMsg),
+              ),
             ],
           ),
           backgroundColor: Colors.red,
@@ -1108,7 +1118,9 @@ class ReceiveScreenState extends State<ReceiveScreen>
               children: [
                 const Icon(Icons.error_rounded, color: Colors.white),
                 const SizedBox(width: 10),
-                Text('Could not open file: ${result.message}'),
+                Expanded(
+                  child: Text('Could not open file: ${result.message}'),
+                ),
               ],
             ),
             backgroundColor: Colors.red,
@@ -1129,7 +1141,9 @@ class ReceiveScreenState extends State<ReceiveScreen>
             children: [
               const Icon(Icons.error_rounded, color: Colors.white),
               const SizedBox(width: 10),
-              Text('Error opening file: $e'),
+              Expanded(
+                child: Text('Error opening file: $e'),
+              ),
             ],
           ),
           backgroundColor: Colors.red,

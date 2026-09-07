@@ -33,11 +33,19 @@ class NotificationService {
         defaultIcon: AssetsLinuxIcon('assets/icon.png'),
       );
 
+      // Windows setup
+      const windowsSettings = WindowsInitializationSettings(
+        appName: 'SpeedShare',
+        appUserModelId: 'com.navin.speedsharemob',
+        guid: 'd9b3d1f0-2f13-48b4-93e5-9276d4952046',
+      );
+
       final initSettings = InitializationSettings(
         android: androidSettings,
         iOS: darwinSettings,
         macOS: darwinSettings,
         linux: linuxSettings,
+        windows: windowsSettings,
       );
 
       await _notifications.initialize(
@@ -143,6 +151,7 @@ class NotificationService {
         iOS: darwinDetails,
         macOS: darwinDetails,
         linux: linuxDetails,
+        windows: const WindowsNotificationDetails(),
       );
 
       final id = DateTime.now().millisecondsSinceEpoch ~/ 1000;
