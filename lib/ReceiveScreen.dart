@@ -47,6 +47,7 @@ class ReceiveScreenState extends State<ReceiveScreen>
   String? _finalDestinationPath;
   int _activeWrittenBytes = 0;
   int _activeExpectedFileSize = 0;
+  Socket? _activeClientSocket;
 
   // Bug 3: multi-file batch tracking
   int _totalFilesInBatch = 0;
@@ -74,7 +75,11 @@ class ReceiveScreenState extends State<ReceiveScreen>
     // Issue 1: Listen for notification cancel button taps from the foreground service.
     BackgroundService.onCancelRequested = (key) {
       if (key == 'receive' && mounted) {
-        stopReceiving();
+        if (_activeClientSocket != null || _activeTmpFile != null) {
+          _cancelActiveTransfer();
+        } else {
+          stopReceiving();
+        }
       }
     };
 
@@ -453,6 +458,8 @@ class ReceiveScreenState extends State<ReceiveScreen>
       }
 
       serverSocket!.listen((client) {
+        _activeClientSocket = client;
+
         // Protocol state variables
         bool receivingMetadata = true;
         int metadataSize = 0;
@@ -471,6 +478,15 @@ class ReceiveScreenState extends State<ReceiveScreen>
             client.write('DEVICE_NAME:$computerName');
             await client.flush();
             client.destroy();
+            if (_activeClientSocket == client) _activeClientSocket = null;
+            return;
+          }
+
+          // Check for transfer cancellation message from sender
+          if (data.length >= 18 &&
+              utf8.decode(data, allowMalformed: true).contains('TRANSFER_CANCELLED')) {
+            debugPrint('Received TRANSFER_CANCELLED from sender');
+            await _handleTransferCancelledBySender();
             return;
           }
 
@@ -806,15 +822,17 @@ class ReceiveScreenState extends State<ReceiveScreen>
           }
         }, onError: (e) {
           debugPrint('TCP client socket error: $e');
-          if (writtenFileBytes < expectedFileSize) {
-            _cleanupActiveDownload(deleteTempFile: true);
+          if (writtenFileBytes < expectedFileSize && expectedFileSize > 0) {
+            _handleTransferCancelledBySender();
           }
-          client.close();
+          try { client.close(); } catch (_) {}
+          if (_activeClientSocket == client) _activeClientSocket = null;
         }, onDone: () {
-          if (writtenFileBytes < expectedFileSize) {
-            _cleanupActiveDownload(deleteTempFile: true);
+          if (writtenFileBytes < expectedFileSize && expectedFileSize > 0) {
+            _handleTransferCancelledBySender();
           }
-          client.close();
+          try { client.close(); } catch (_) {}
+          if (_activeClientSocket == client) _activeClientSocket = null;
         });
       }, onError: (e) {
         debugPrint('Server socket error: $e');
@@ -868,6 +886,148 @@ class ReceiveScreenState extends State<ReceiveScreen>
       _finalDestinationPath = null;
       _activeWrittenBytes = 0;
       _activeExpectedFileSize = 0;
+    }
+  }
+
+  /// Clears temporary cache and orphan partial downloads
+  Future<void> _clearTransferCache() async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+      if (await tempDir.exists()) {
+        await for (final entity in tempDir.list()) {
+          try {
+            final name = p.basename(entity.path);
+            if (name.startsWith('shared_text_') ||
+                name.endsWith('.speedshare_tmp') ||
+                name == 'fast_picker' ||
+                name == 'file_picker') {
+              await entity.delete(recursive: true);
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (e) {
+      debugPrint('Error cleaning temp directory: $e');
+    }
+
+    try {
+      if (downloadDirectoryPath.isNotEmpty) {
+        final downloadDir = Directory(downloadDirectoryPath);
+        if (await downloadDir.exists()) {
+          await for (final entity in downloadDir.list()) {
+            if (entity is File && entity.path.endsWith('.speedshare_tmp')) {
+              try {
+                await entity.delete();
+              } catch (_) {}
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error cleaning download tmp files: $e');
+    }
+  }
+
+  /// Explicitly cancels the active incoming transfer and notifies the sender
+  Future<void> _cancelActiveTransfer({bool notifySender = true}) async {
+    if (_activeClientSocket != null) {
+      if (notifySender) {
+        try {
+          _activeClientSocket?.write('TRANSFER_CANCELLED');
+          await _activeClientSocket?.flush();
+        } catch (_) {}
+      }
+      try {
+        _activeClientSocket?.destroy();
+      } catch (_) {}
+      _activeClientSocket = null;
+    }
+
+    await _cleanupActiveDownload(deleteTempFile: true);
+    await _clearTransferCache();
+
+    if (mounted) {
+      setState(() {
+        receivedFileName = '';
+        fileSize = 0;
+        bytesReceived = 0;
+        progress = 0.0;
+        _totalFilesInBatch = 0;
+        _currentFileInBatch = 0;
+      });
+
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.cancel_rounded, color: Colors.white),
+              SizedBox(width: 10),
+              Text('Transfer cancelled'),
+            ],
+          ),
+          backgroundColor: Colors.orange[800],
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(20),
+        ),
+      );
+    }
+
+    if (isReceiving) {
+      BackgroundService.update(
+        title: 'SpeedShare — Receiving',
+        body: 'Waiting for incoming files…',
+        buttons: [BackgroundService.cancelReceiveButton],
+      );
+    }
+  }
+
+  /// Handles when the sender cancels the transfer or prematurely closes the connection
+  Future<void> _handleTransferCancelledBySender() async {
+    await _cleanupActiveDownload(deleteTempFile: true);
+    await _clearTransferCache();
+
+    if (mounted) {
+      setState(() {
+        receivedFileName = '';
+        fileSize = 0;
+        bytesReceived = 0;
+        progress = 0.0;
+        _totalFilesInBatch = 0;
+        _currentFileInBatch = 0;
+      });
+
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.cancel_rounded, color: Colors.white),
+              SizedBox(width: 10),
+              Text('Transfer was cancelled by sender'),
+            ],
+          ),
+          backgroundColor: Colors.orange[800],
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(20),
+        ),
+      );
+    }
+
+    if (isReceiving) {
+      BackgroundService.update(
+        title: 'SpeedShare — Receiving',
+        body: 'Transfer cancelled. Waiting for files…',
+        buttons: [BackgroundService.cancelReceiveButton],
+      );
     }
   }
 
@@ -1529,6 +1689,32 @@ class ReceiveScreenState extends State<ReceiveScreen>
                   ],
                 ),
               ],
+            ),
+
+            const SizedBox(height: 12),
+
+            // In-screen Cancel button for active incoming transfer
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _cancelActiveTransfer(notifySender: true),
+                icon: const Icon(Icons.cancel_outlined, size: 18, color: Colors.redAccent),
+                label: const Text(
+                  'Cancel Transfer',
+                  style: TextStyle(
+                    color: Colors.redAccent,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Colors.redAccent),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
             ),
           ],
         ),

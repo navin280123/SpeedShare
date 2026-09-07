@@ -3,6 +3,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 import 'package:mime/mime.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speedsharemob/PermissionManager.dart';
@@ -76,35 +78,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
     // Issue 1: Listen for notification cancel button taps from the foreground service.
     BackgroundService.onCancelRequested = (key) {
       if (key == 'send' && mounted) {
-        // Cancel the current socket transfer
-        try {
-          socket?.destroy();
-        } catch (_) {}
-        socket = null;
-        BackgroundService.stop(key: 'send');
-        setState(() {
-          _isSending = false;
-          if (_currentFileIndex < _selectedFiles.length) {
-            _selectedFiles[_currentFileIndex].status = 'Cancelled';
-          }
-        });
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.cancel_rounded, color: Colors.white),
-                SizedBox(width: 10),
-                Text('Transfer cancelled'),
-              ],
-            ),
-            backgroundColor: Colors.orange,
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 2),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            margin: const EdgeInsets.all(20),
-          ),
-        );
+        _cancelTransfer(notifyReceiver: true);
       }
     };
 
@@ -479,7 +453,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
       // Single listener for the entire socket lifetime
       socket!.listen(
         (data) {
-          final message = utf8.decode(data);
+          final message = utf8.decode(data, allowMalformed: true);
 
           // Handle device name response
           if (waitingForDeviceName && message.startsWith('DEVICE_NAME:')) {
@@ -491,6 +465,13 @@ class FileSenderScreenState extends State<FileSenderScreen>
             return;
           }
 
+          // Handle cancellation by receiver
+          if (message.contains('TRANSFER_CANCELLED')) {
+            debugPrint('Received TRANSFER_CANCELLED from receiver');
+            _handleTransferCancelledByReceiver();
+            return;
+          }
+
           // Handle transfer protocol messages
           if (message == 'READY_FOR_FILE_DATA') {
             _sendCurrentFileData();
@@ -499,7 +480,9 @@ class FileSenderScreenState extends State<FileSenderScreen>
           }
         },
         onError: (error) {
-          if (mounted) {
+          if (_isSending && _progress < 1.0 && mounted) {
+            _handleTransferCancelledByReceiver();
+          } else if (mounted) {
             setState(() {
               _isSending = false;
             });
@@ -528,28 +511,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
         },
         onDone: () {
           if (_isSending && _progress < 1.0 && mounted) {
-            setState(() {
-              _isSending = false;
-            });
-            ScaffoldMessenger.of(context).clearSnackBars();
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: const Row(
-                  children: [
-                    Icon(Icons.error_outline_rounded, color: Colors.white),
-                    SizedBox(width: 10),
-                    Text('Connection closed unexpectedly'),
-                  ],
-                ),
-                backgroundColor: Colors.red[700],
-                behavior: SnackBarBehavior.floating,
-                duration: const Duration(seconds: 3),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                margin: EdgeInsets.all(20),
-              ),
-            );
+            _handleTransferCancelledByReceiver();
           }
         },
       );
@@ -1016,6 +978,126 @@ class FileSenderScreenState extends State<FileSenderScreen>
         _sendCurrentFileMetadata();
       }
     });
+  }
+
+  /// Clears temporary cache and orphan partial files created during file picking or sharing
+  Future<void> _clearTransferCache() async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+      if (await tempDir.exists()) {
+        await for (final entity in tempDir.list()) {
+          try {
+            final name = p.basename(entity.path);
+            if (name.startsWith('shared_text_') ||
+                name.endsWith('.speedshare_tmp') ||
+                name == 'fast_picker' ||
+                name == 'file_picker') {
+              await entity.delete(recursive: true);
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (e) {
+      debugPrint('Error cleaning temp directory: $e');
+    }
+  }
+
+  /// Cancels sending and notifies the receiver
+  Future<void> _cancelTransfer({bool notifyReceiver = true}) async {
+    if (!_isSending && socket == null) return;
+
+    if (socket != null) {
+      if (notifyReceiver) {
+        try {
+          socket!.write('TRANSFER_CANCELLED');
+          await socket!.flush();
+        } catch (_) {}
+      }
+      try {
+        socket!.destroy();
+      } catch (_) {}
+      socket = null;
+    }
+
+    BackgroundService.stop(key: 'send');
+    await _clearTransferCache();
+
+    if (mounted) {
+      setState(() {
+        _isSending = false;
+        if (_currentFileIndex < _selectedFiles.length) {
+          _selectedFiles[_currentFileIndex].status = 'Cancelled';
+        }
+        for (int i = _currentFileIndex + 1; i < _selectedFiles.length; i++) {
+          if (_selectedFiles[i].status == 'Pending' || _selectedFiles[i].status == 'Sending') {
+            _selectedFiles[i].status = 'Cancelled';
+          }
+        }
+      });
+
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.cancel_rounded, color: Colors.white),
+              SizedBox(width: 10),
+              Text('Transfer cancelled'),
+            ],
+          ),
+          backgroundColor: Colors.orange[800],
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          margin: const EdgeInsets.all(20),
+        ),
+      );
+    }
+  }
+
+  /// Handles when the receiver explicitly cancels the transfer
+  Future<void> _handleTransferCancelledByReceiver() async {
+    if (socket != null) {
+      try {
+        socket!.destroy();
+      } catch (_) {}
+      socket = null;
+    }
+
+    BackgroundService.stop(key: 'send');
+    await _clearTransferCache();
+
+    if (mounted) {
+      setState(() {
+        _isSending = false;
+        if (_currentFileIndex < _selectedFiles.length) {
+          _selectedFiles[_currentFileIndex].status = 'Cancelled';
+        }
+        for (int i = _currentFileIndex + 1; i < _selectedFiles.length; i++) {
+          if (_selectedFiles[i].status == 'Pending' || _selectedFiles[i].status == 'Sending') {
+            _selectedFiles[i].status = 'Cancelled';
+          }
+        }
+      });
+
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.cancel_rounded, color: Colors.white),
+              SizedBox(width: 10),
+              Text('Transfer was cancelled by receiver'),
+            ],
+          ),
+          backgroundColor: Colors.orange[800],
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          margin: const EdgeInsets.all(20),
+        ),
+      );
+    }
   }
 
   List<ReceiverDevice> _filterReceivers() {
@@ -2357,60 +2439,75 @@ class FileSenderScreenState extends State<FileSenderScreen>
           const SizedBox(height: 16),
 
           // Bottom navigation
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed:
-                      _transferComplete || !_isSending
-                          ? () {
-                            setState(() {
-                              _currentStep = 2;
-                            });
-                          }
-                          : null,
-                  icon: const Icon(Icons.arrow_back),
-                  label: const Text('Back'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF4E6AF3),
-                    side: const BorderSide(color: Color(0xFF4E6AF3)),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+          if (_isSending && !_transferComplete) ...[
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _cancelTransfer(notifyReceiver: true),
+                icon: const Icon(Icons.cancel_rounded, size: 20),
+                label: const Text(
+                  'Cancel Transfer',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                ),
+                style: ElevatedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  backgroundColor: Colors.red[600],
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
                   ),
                 ),
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                flex: 2,
-                child: ElevatedButton.icon(
-                  onPressed:
-                      _transferComplete
-                          ? () {
-                            setState(() {
-                              _currentStep = 1;
-                              _filesSelected = false;
-                              _selectedFiles = [];
-                              _transferComplete = false;
-                              _totalFileSize = 0;
-                              _totalBytesSent = 0;
-                              _currentFileIndex = 0;
-                            });
-                          }
-                          : null,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text(
-                    'Send More Files',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    backgroundColor: const Color(0xFF2AB673),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    disabledBackgroundColor: Colors.grey[400],
+            ),
+          ] else ...[
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _currentStep = 2;
+                      });
+                    },
+                    icon: const Icon(Icons.arrow_back),
+                    label: const Text('Back'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF4E6AF3),
+                      side: const BorderSide(color: Color(0xFF4E6AF3)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
+                const SizedBox(width: 16),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _currentStep = 1;
+                        _filesSelected = false;
+                        _selectedFiles = [];
+                        _transferComplete = false;
+                        _totalFileSize = 0;
+                        _totalBytesSent = 0;
+                        _currentFileIndex = 0;
+                      });
+                    },
+                    icon: const Icon(Icons.refresh),
+                    label: const Text(
+                      'Send More Files',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      backgroundColor: const Color(0xFF2AB673),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
