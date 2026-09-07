@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:mime/mime.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,6 +13,7 @@ import 'package:speedsharemob/NotificationService.dart';
 import 'package:speedsharemob/SharedContentService.dart';
 import 'package:speedsharemob/BackgroundService.dart';
 import 'package:desktop_drop/desktop_drop.dart';
+import 'package:speedsharemob/FastFilePicker.dart';
 
 class FileSenderScreen extends StatefulWidget {
   const FileSenderScreen({super.key});
@@ -637,61 +637,29 @@ class FileSenderScreenState extends State<FileSenderScreen>
 
   void _pickFile() async {
     if (_isPickingFiles) return; // prevent double-tap
-    // Set _isPickingFiles BEFORE the await so the overlay shows immediately
-    // after the native picker closes (covers the processing gap).
     if (mounted) setState(() => _isPickingFiles = true);
-    FilePickerResult? result;
     try {
-      result = await FilePicker.platform.pickFiles(
-        type: FileType.any,
+      final paths = await FastFilePicker.pickFiles(
         allowMultiple: true,
         dialogTitle: 'Select files to send',
       );
-    } finally {
-      // If no files selected, clear the picking state right away.
-      if (result == null || result.files.isEmpty) {
-        if (mounted) { setState(() => _isPickingFiles = false); }
+      if (paths.isNotEmpty) {
+        if (mounted) {
+          setState(() {
+            _isPickingFiles = false;
+            _isPreparingFiles = true;
+          });
+        }
+        loadFilesFromPaths(paths);
       }
-    }
-    if (result != null && result.files.isNotEmpty) {
-      // Transition from "picker processing" to "file metadata" loading state.
+    } catch (e) {
+      debugPrint('Error picking files: $e');
+    } finally {
       if (mounted) {
         setState(() {
           _isPickingFiles = false;
-          _isPreparingFiles = true;
+          _isPreparingFiles = false;
         });
-      }
-      try {
-        List<FileToSend> files = [];
-        int totalSize = 0;
-        for (var file in result.files) {
-          if (file.path != null) {
-            File fileData = File(file.path!);
-            String fileName =
-                file.path!.split(Platform.isWindows ? '\\' : '/').last;
-            int fileSize = await fileData.length(); // async — won't block UI
-            String fileType =
-                lookupMimeType(file.path!) ?? 'application/octet-stream';
-            files.add(
-              FileToSend(
-                file: fileData,
-                name: fileName,
-                size: fileSize,
-                type: fileType,
-                progress: 0.0,
-                bytesSent: 0,
-                status: 'Pending',
-              ),
-            );
-            totalSize += fileSize;
-          }
-        }
-        _prepareFiles(files, totalSize);
-        _controller.reset();
-        _controller.forward();
-        if (mounted) setState(() => _currentStep = 2);
-      } finally {
-        if (mounted) setState(() => _isPreparingFiles = false);
       }
     }
   }

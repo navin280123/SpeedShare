@@ -16,6 +16,7 @@ import 'package:speedsharemob/DeviceNameManager.dart';
 import 'package:speedsharemob/NetworkStatusWidget.dart';
 import 'package:speedsharemob/SpeedShareAppBar.dart';
 import 'package:speedsharemob/BackgroundService.dart';
+import 'package:speedsharemob/FastFilePicker.dart';
 
 enum StreamTabMode { connect, stream }
 enum StreamMediaType { audio, video }
@@ -795,40 +796,30 @@ class StreamScreenState extends State<StreamScreen> with TickerProviderStateMixi
 
   Future<void> _pickMediaFiles() async {
     if (_isLoadingMedia) return; // prevent double-tap
-    // Set _isLoadingMedia BEFORE the await so the UI freezes immediately
-    // when a large selection is being processed by the native picker.
     if (mounted) setState(() => _isLoadingMedia = true);
-    FilePickerResult? result;
+    final allowedExts = [
+      'mp3', 'wav', 'aac', 'm4a', 'flac', 'ogg', 'wma', 'opus',
+      'mp4', 'mkv', 'webm', 'mov', 'avi', 'wmv', '3gp', 'm4v'
+    ];
     try {
-      result = await FilePicker.platform.pickFiles(
+      final paths = await FastFilePicker.pickFiles(
         allowMultiple: true,
-        type: FileType.custom,
-        allowedExtensions: [
-          'mp3', 'wav', 'aac', 'm4a', 'flac', 'ogg', 'wma', 'opus',
-          'mp4', 'mkv', 'webm', 'mov', 'avi', 'wmv', '3gp', 'm4v'
-        ],
+        allowedExtensions: allowedExts,
+        dialogTitle: 'Select media files to stream',
       );
-    } catch (e) {
-      if (mounted) setState(() => _isLoadingMedia = false);
-      _showSnackBar('Error picking files: $e', isError: true);
-      return;
-    }
 
-    if (result == null || result.files.isEmpty) {
-      // User cancelled — clear state immediately
-      if (mounted) setState(() => _isLoadingMedia = false);
-      return;
-    }
+      if (paths.isEmpty) {
+        if (mounted) setState(() => _isLoadingMedia = false);
+        return;
+      }
 
-    // _isLoadingMedia stays true while we index file metadata
-    try {
-      for (var file in result.files) {
-        if (file.path != null && file.path!.isNotEmpty) {
-          _addFileToHostedMedia(file.path!);
-        }
+      for (var path in paths) {
+        _addFileToHostedMedia(path);
       }
       if (mounted) setState(() {});
       if (_isStreaming) _sendStreamAnnouncement();
+    } catch (e) {
+      _showSnackBar('Error picking files: $e', isError: true);
     } finally {
       if (mounted) setState(() => _isLoadingMedia = false);
     }
