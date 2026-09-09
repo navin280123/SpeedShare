@@ -1157,7 +1157,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: const Text(
-                      'v1.2.1+16 • Stable Release',
+                      'v1.2.2+17 • Stable Release',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
