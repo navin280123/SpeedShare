@@ -822,6 +822,41 @@ class StreamScreenState extends State<StreamScreen>
         return;
       }
 
+      // 2b. M3U Playlist Endpoint (VLC / MX Player / External Media Players)
+      if (uri.path == '/api/stream/playlist.m3u' ||
+          uri.path == '/api/stream/playlist.m3u8') {
+        final mediaId = uri.queryParameters['id'];
+        final host = request.headers.host ?? 'localhost:$_serverPort';
+        final pinParam = (_accessCode != null && _accessCode!.isNotEmpty)
+            ? '&code=${Uri.encodeComponent(_accessCode!)}'
+            : '';
+        final buffer = StringBuffer('#EXTM3U\n');
+
+        final itemsToInclude = mediaId != null
+            ? _hostedMediaList.where((m) => m.id == mediaId).toList()
+            : _hostedMediaList;
+
+        for (final m in itemsToInclude) {
+          buffer.writeln('#EXTINF:-1,${m.name}');
+          buffer.writeln(
+            'http://$host/api/stream/media?id=${Uri.encodeComponent(m.id)}$pinParam',
+          );
+        }
+
+        request.response.headers.contentType = ContentType(
+          'audio',
+          'x-mpegurl',
+          charset: 'utf-8',
+        );
+        request.response.headers.add(
+          'Content-Disposition',
+          'attachment; filename="${mediaId != null ? 'stream_${Uri.encodeComponent(mediaId)}.m3u' : 'speedshare_stream_playlist.m3u'}"',
+        );
+        request.response.write(buffer.toString());
+        await request.response.close();
+        return;
+      }
+
       // 3. Media Streaming Endpoint with Range / 206 Partial Content
       if (uri.path == '/api/stream/media' ||
           uri.path.startsWith('/api/stream/media/')) {

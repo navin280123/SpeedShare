@@ -296,6 +296,22 @@ class WebPortalHtml {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
   ''';
 
+  static const String _iconVlc = '''
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="#FF8800"><path d="M12 2L9.5 9H14.5L12 2ZM8.8 11L7.3 15H16.7L15.2 11H8.8ZM6.6 17L4.5 22H19.5L17.4 17H6.6Z"/></svg>
+  ''';
+
+  static const String _iconCopy = '''
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+  ''';
+
+  static const String _iconPlaylist = '''
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M4 10h12v2H4zm0-4h12v2H4zm0 8h8v2H4zm10 0v6l5-3z"/></svg>
+  ''';
+
+  static const String _iconExternal = '''
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>
+  ''';
+
   // ==========================================
   // 1. FILE SENDER WEB PORTAL (Web Share)
   // ==========================================
@@ -790,12 +806,25 @@ class WebPortalHtml {
   // 3. MEDIA STREAM WEB PORTAL (Media Player)
   // ==========================================
 
-  /// Generates the HTML for the Web Media Player.
+  /// Generates the HTML for the Live Media Streaming web player with VLC / external player support.
   static String getStreamWebHtml({
     required String hostDeviceName,
     String? accessCode,
   }) {
     final hasPin = accessCode != null && accessCode.isNotEmpty;
+    final pinDisplay = hasPin ? 'display: none;' : '';
+    final pinSectionHtml = hasPin
+        ? '''
+    <div id="pin-section" class="card pin-box">
+      <h3>Stream Access PIN</h3>
+      <p style="color: var(--text-muted); font-size: 13px; margin-top: 8px;">
+        Enter the 4-digit PIN shown on the stream host
+      </p>
+      <input type="text" id="pin-input" class="pin-input" maxlength="6" placeholder="PIN" autofocus>
+      <button onclick="unlockStream()" class="btn btn-accent" style="width: 100%;">Connect to Stream</button>
+      <div id="pin-error" style="color: #ff5252; font-size: 13px; margin-top: 10px; display: none;">Invalid PIN. Please try again.</div>
+    </div>'''
+        : '';
 
     return '''<!DOCTYPE html>
 <html lang="en">
@@ -827,8 +856,39 @@ class WebPortalHtml {
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 16px;
       background: rgba(255, 255, 255, 0.03);
       border-top: 1px solid var(--card-border);
+      flex-wrap: wrap;
+    }
+    .player-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .btn-vlc {
+      background: linear-gradient(135deg, #FF7700 0%, #E65100 100%);
+      color: #fff !important;
+      border: none;
+      font-weight: 600;
+      box-shadow: 0 3px 10px rgba(255, 119, 0, 0.35);
+    }
+    .btn-vlc:hover {
+      background: linear-gradient(135deg, #FF8800 0%, #F57C00 100%);
+      transform: translateY(-1px);
+    }
+    .codec-notice {
+      background: rgba(255, 119, 0, 0.12);
+      border: 1px solid rgba(255, 119, 0, 0.35);
+      border-radius: 12px;
+      padding: 12px 16px;
+      margin: 12px 20px;
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 13px;
     }
     .media-card {
       display: flex;
@@ -876,6 +936,59 @@ class WebPortalHtml {
       font-size: 12px;
       color: var(--text-muted);
     }
+
+    /* External Player Modal */
+    .modal-backdrop {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      z-index: 10000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-card {
+      background: #141724;
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      max-width: 500px;
+      width: 100%;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.85);
+      overflow: hidden;
+      animation: modalPop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @keyframes modalPop {
+      from { opacity: 0; transform: scale(0.94); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .modal-header {
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--card-border);
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .modal-body {
+      padding: 20px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    .modal-option {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 14px;
+      margin-bottom: 12px;
+      transition: all 0.2s;
+    }
+    .modal-option:hover {
+      border-color: rgba(255, 255, 255, 0.15);
+      background: rgba(255, 255, 255, 0.05);
+    }
   </style>
 </head>
 <body>
@@ -896,35 +1009,56 @@ class WebPortalHtml {
 
   <main>
     $_appDownloadBannerHtml
-    ${hasPin ? '''
-    <div id="pin-section" class="card pin-box">
-      <h3>Stream Access PIN</h3>
-      <p style="color: var(--text-muted); font-size: 13px; margin-top: 8px;">
-        Enter the 4-digit PIN shown on the stream host
-      </p>
-      <input type="text" id="pin-input" class="pin-input" maxlength="6" placeholder="PIN" autofocus>
-      <button onclick="unlockStream()" class="btn btn-accent" style="width: 100%;">Connect to Stream</button>
-      <div id="pin-error" style="color: #ff5252; font-size: 13px; margin-top: 10px; display: none;">Invalid PIN. Please try again.</div>
-    </div>
-    ''' : ''}
-
-    <div id="stream-section" style="${hasPin ? 'display: none;' : ''}">
+    $pinSectionHtml
+    <div id="stream-section" style="$pinDisplay">
       <div class="player-container">
         <video id="player-video" class="video-view" controls playsinline></video>
+
+        <!-- Browser Codec Warning Bar (shown if browser cannot decode video format) -->
+        <div id="codec-alert" class="codec-notice">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            $_iconVlc
+            <span>Browser cannot decode this video format natively (e.g. MKV/AC3).</span>
+          </div>
+          <button onclick="openCurrentInExternalModal()" class="btn btn-sm btn-vlc">
+            Play in VLC
+          </button>
+        </div>
+
         <div class="now-playing-banner">
-          <div>
-            <div id="current-title" style="font-weight: 600; font-size: 15px;">Select a track to play</div>
+          <div style="flex: 1; min-width: 0;">
+            <div id="current-title" style="font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Select a track to play</div>
             <div id="current-meta" style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">Direct stream from host</div>
           </div>
-          <a id="current-download" href="#" class="btn btn-sm btn-outline" download style="display: none;">
-            $_iconDownload
-            <span>Save</span>
-          </a>
+          <div class="player-actions">
+            <button id="btn-play-vlc" class="btn btn-sm btn-vlc" onclick="openCurrentInExternalModal()" style="display: none;" title="Play in VLC Media Player / External Player">
+              $_iconVlc
+              <span>Play in VLC</span>
+            </button>
+            <button id="btn-copy-url" class="btn btn-sm btn-outline" onclick="copyCurrentStreamUrl()" style="display: none;" title="Copy direct stream URL for media players">
+              $_iconCopy
+              <span id="copy-btn-text">Copy URL</span>
+            </button>
+            <a id="current-m3u" href="#" class="btn btn-sm btn-outline" download style="display: none;" title="Download .m3u playlist file (opens directly in VLC, PotPlayer, IINA)">
+              $_iconPlaylist
+              <span>M3U</span>
+            </a>
+            <a id="current-download" href="#" class="btn btn-sm btn-outline" download style="display: none;" title="Save media file directly">
+              $_iconDownload
+              <span>Save</span>
+            </a>
+          </div>
         </div>
       </div>
 
       <div class="card">
-        <h3 style="font-size: 16px; margin-bottom: 14px;">Media Catalog</h3>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+          <h3 style="font-size: 16px;">Media Catalog</h3>
+          <a id="all-playlist-btn" href="/api/stream/playlist.m3u" class="btn btn-sm btn-outline" download="speedshare_playlist.m3u" style="color: #FF8800; border-color: rgba(255, 136, 0, 0.4);" title="Download full .m3u playlist for VLC">
+            $_iconVlc
+            <span>VLC Playlist (.m3u)</span>
+          </a>
+        </div>
         <div id="catalog-list">
           <div style="text-align: center; padding: 30px; color: var(--text-muted);">Loading playlist...</div>
         </div>
@@ -932,43 +1066,142 @@ class WebPortalHtml {
     </div>
   </main>
 
+  <!-- External Player Modal Dialog -->
+  <div id="external-modal" class="modal-backdrop">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 10px; overflow: hidden;">
+          <div style="background: rgba(255, 136, 0, 0.15); padding: 8px; border-radius: 10px; display: flex; flex-shrink: 0;">
+            $_iconVlc
+          </div>
+          <div style="overflow: hidden;">
+            <div style="font-weight: 700; font-size: 15px; color: #fff;">Play in VLC / External Player</div>
+            <div id="modal-track-name" style="font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Track Title</div>
+          </div>
+        </div>
+        <button onclick="closeExternalModal()" style="background: none; border: none; color: var(--text-muted); font-size: 24px; cursor: pointer; line-height: 1; padding: 4px 8px;">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Option 1: Direct App Launch -->
+        <div class="modal-option" style="border-color: rgba(255, 136, 0, 0.35); background: rgba(255, 136, 0, 0.06);">
+          <div style="font-weight: 600; font-size: 14px; margin-bottom: 4px; color: #FFA040; display: flex; align-items: center; justify-content: space-between;">
+            <span>1. Launch in VLC Player</span>
+            <span style="font-size: 11px; background: rgba(255, 136, 0, 0.25); color: #FFA040; padding: 2px 8px; border-radius: 6px;">Recommended</span>
+          </div>
+          <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+            Opens the stream in VLC on Android, iOS, Windows, and macOS.
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button onclick="launchVlcProtocol()" class="btn btn-sm btn-vlc">
+              $_iconVlc
+              <span>Open in VLC</span>
+            </button>
+            <button id="modal-android-btn" onclick="launchAndroidPlayerIntent()" class="btn btn-sm btn-outline" style="display: none;">
+              $_iconExternal
+              <span>Android Player Chooser</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Option 2: Download .m3u Stream File -->
+        <div class="modal-option">
+          <div style="font-weight: 600; font-size: 14px; margin-bottom: 4px; color: #738AFF;">
+            2. Stream File (.m3u)
+          </div>
+          <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px;">
+            Double-clicking this file automatically opens VLC, IINA, PotPlayer, or Windows Media Player.
+          </div>
+          <a id="modal-m3u-link" href="#" class="btn btn-sm btn-outline" download style="display: inline-flex; align-items: center; gap: 6px;">
+            $_iconPlaylist
+            <span>Download .m3u Stream File</span>
+          </a>
+        </div>
+
+        <!-- Option 3: Copy Stream URL -->
+        <div class="modal-option" style="border-color: rgba(42, 182, 115, 0.3); background: rgba(42, 182, 115, 0.05);">
+          <div style="font-weight: 600; font-size: 14px; margin-bottom: 4px; color: #2AB673;">
+            3. Network Stream URL
+          </div>
+          <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
+            Paste stream URL directly into your favorite media player:
+          </div>
+          <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+            <input id="modal-url-input" type="text" readonly style="flex: 1; background: rgba(0,0,0,0.5); border: 1px solid var(--card-border); border-radius: 8px; padding: 8px 10px; font-size: 12px; color: var(--text); outline: none;">
+            <button id="modal-copy-btn" onclick="copyModalUrl()" class="btn btn-sm btn-accent" style="white-space: nowrap;">
+              $_iconCopy
+              <span id="modal-copy-text">Copy</span>
+            </button>
+          </div>
+          <div style="font-size: 11px; color: var(--text-muted); line-height: 1.6;">
+            <strong>Quick Shortcuts:</strong><br>
+            • <b>VLC (PC/Mac/Linux):</b> Press <kbd style="background: rgba(255,255,255,0.12); padding: 1px 5px; border-radius: 4px;">Ctrl+N</kbd> / <kbd style="background: rgba(255,255,255,0.12); padding: 1px 5px; border-radius: 4px;">Cmd+N</kbd> ➔ Paste URL.<br>
+            • <b>IINA (Mac):</b> Press <kbd style="background: rgba(255,255,255,0.12); padding: 1px 5px; border-radius: 4px;">Cmd+U</kbd> ➔ Paste URL.<br>
+            • <b>PotPlayer (Windows):</b> Press <kbd style="background: rgba(255,255,255,0.12); padding: 1px 5px; border-radius: 4px;">Ctrl+U</kbd> ➔ Paste URL.<br>
+            • <b>VLC Mobile (Android/iOS):</b> More ➔ New Stream ➔ Paste URL.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <footer class="footer">
     SpeedShare Local Wi-Fi Media Stream · Lossless real-time playback
+    <div style="margin-top: 8px; font-size: 11px; opacity: 0.8;">
+      Get native apps: 
+      <a href="$androidUrl" target="_blank" rel="noopener" style="color: #4E6AF3; text-decoration: none; margin: 0 4px;">Android</a> · 
+      <a href="$windowsUrl" target="_blank" rel="noopener" style="color: #4E6AF3; text-decoration: none; margin: 0 4px;">Windows</a> · 
+      <a href="$macosUrl" target="_blank" rel="noopener" style="color: #4E6AF3; text-decoration: none; margin: 0 4px;">macOS</a> · 
+      <a href="$linuxUrl" target="_blank" rel="noopener" style="color: #4E6AF3; text-decoration: none; margin: 0 4px;">Linux</a>
+    </div>
   </footer>
 
   <script>
     let playlist = [];
     let activeIndex = -1;
+    let modalItem = null;
     const requiredPin = "${accessCode ?? ''}";
 
     function getPin() {
-      return sessionStorage.getItem('speedshare_stream_pin') || requiredPin;
+      return sessionStorage.getItem("speedshare_stream_pin") || requiredPin;
     }
 
     function formatBytes(bytes) {
-      if (!bytes || bytes === 0) return '';
+      if (!bytes || bytes === 0) return "";
       const k = 1024;
-      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const sizes = ["B", "KB", "MB", "GB", "TB"];
       const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return (bytes / Math.pow(k, i)).toFixed(1) + ' ' + sizes[i];
+      return (bytes / Math.pow(k, i)).toFixed(1) + " " + sizes[i];
+    }
+
+    function getFullStreamUrl(item) {
+      const pin = getPin();
+      const origin = window.location.origin;
+      return origin + "/api/stream/media?id=" + encodeURIComponent(item.id) + (pin ? "&code=" + encodeURIComponent(pin) : "");
+    }
+
+    function getM3uUrl(item) {
+      const pin = getPin();
+      const origin = window.location.origin;
+      return origin + "/api/stream/playlist.m3u" + (item ? "?id=" + encodeURIComponent(item.id) : "") + (pin ? (item ? "&code=" : "?code=") + encodeURIComponent(pin) : "");
     }
 
     function unlockStream() {
-      const pin = document.getElementById('pin-input').value.trim();
-      sessionStorage.setItem('speedshare_stream_pin', pin);
+      const pin = document.getElementById("pin-input").value.trim();
+      sessionStorage.setItem("speedshare_stream_pin", pin);
       loadCatalog((success) => {
         if (success) {
-          document.getElementById('pin-section').style.display = 'none';
-          document.getElementById('stream-section').style.display = 'block';
+          document.getElementById("pin-section").style.display = "none";
+          document.getElementById("stream-section").style.display = "block";
         } else {
-          document.getElementById('pin-error').style.display = 'block';
+          document.getElementById("pin-error").style.display = "block";
         }
       });
     }
 
     async function loadCatalog(callback) {
       const pin = getPin();
-      const url = '/api/stream/catalog' + (pin ? '?code=' + encodeURIComponent(pin) : '');
+      const url = "/api/stream/catalog" + (pin ? "?code=" + encodeURIComponent(pin) : "");
       try {
         const resp = await fetch(url);
         if (!resp.ok) {
@@ -978,6 +1211,12 @@ class WebPortalHtml {
         const data = await resp.json();
         playlist = data.items || [];
         renderCatalog();
+
+        const allPlaylistBtn = document.getElementById("all-playlist-btn");
+        if (allPlaylistBtn) {
+          allPlaylistBtn.href = "/api/stream/playlist.m3u" + (pin ? "?code=" + encodeURIComponent(pin) : "");
+        }
+
         if (playlist.length > 0) {
           playMedia(0, false);
         }
@@ -988,25 +1227,31 @@ class WebPortalHtml {
     }
 
     function renderCatalog() {
-      const list = document.getElementById('catalog-list');
+      const list = document.getElementById("catalog-list");
       if (!playlist.length) {
         list.innerHTML = '<div style="text-align:center; padding: 20px; color: var(--text-muted);">No media items shared</div>';
         return;
       }
       list.innerHTML = playlist.map((item, idx) => `
-        <div class="media-card \${idx === activeIndex ? 'active' : ''}" onclick="playMedia(\${idx}, true)">
+        <div class="media-card \${idx === activeIndex ? "active" : ""}" onclick="playMedia(\${idx}, true)">
           <div class="media-info">
             <div class="media-icon">$_iconPlay</div>
-            <div>
-              <div class="media-name">\${item.name}</div>
-              <div class="media-meta">\${item.type || 'Media'} · \${formatBytes(item.size)}</div>
+            <div style="overflow: hidden;">
+              <div class="media-name" title="\${item.name}">\${item.name}</div>
+              <div class="media-meta">\${item.type || "Media"} · \${formatBytes(item.size)}</div>
             </div>
           </div>
-          <button class="btn btn-sm btn-outline" style="border: none;">
-            $_iconPlay
-          </button>
+          <div style="display: flex; gap: 6px; align-items: center;" onclick="event.stopPropagation()">
+            <button class="btn btn-sm btn-outline" onclick="openItemInExternalModal(\${idx})" title="Play in VLC / External Player" style="border-color: rgba(255, 136, 0, 0.4); color: #FF8800; padding: 6px 10px;">
+              $_iconVlc
+              <span style="margin-left: 4px; font-size: 12px;">VLC</span>
+            </button>
+            <button class="btn btn-sm btn-outline" onclick="playMedia(\${idx}, true)" title="Play in Browser">
+              $_iconPlay
+            </button>
+          </div>
         </div>
-      `).join('');
+      `).join("");
     }
 
     function playMedia(index, autoPlay) {
@@ -1014,34 +1259,133 @@ class WebPortalHtml {
       activeIndex = index;
       const item = playlist[index];
       const pin = getPin();
-      const streamUrl = '/api/stream/media?id=' + encodeURIComponent(item.id) + (pin ? '&code=' + encodeURIComponent(pin) : '');
+      const streamUrl = "/api/stream/media?id=" + encodeURIComponent(item.id) + (pin ? "&code=" + encodeURIComponent(pin) : "");
 
-      const player = document.getElementById('player-video');
+      const player = document.getElementById("player-video");
+      document.getElementById("codec-alert").style.display = "none";
       player.src = streamUrl;
       if (autoPlay) {
         player.play().catch(() => {});
       }
 
-      document.getElementById('current-title').innerText = item.name;
-      document.getElementById('current-meta').innerText = (item.type || 'Media') + ' · ' + formatBytes(item.size);
+      document.getElementById("current-title").innerText = item.name;
+      document.getElementById("current-meta").innerText = (item.type || "Media") + " · " + formatBytes(item.size);
 
-      const dl = document.getElementById('current-download');
+      document.getElementById("btn-play-vlc").style.display = "inline-flex";
+      document.getElementById("btn-copy-url").style.display = "inline-flex";
+
+      const m3uBtn = document.getElementById("current-m3u");
+      m3uBtn.href = getM3uUrl(item);
+      m3uBtn.download = item.name.replace(RegExp("[^\\w\\.\\-]", "g"), "_") + ".m3u";
+      m3uBtn.style.display = "inline-flex";
+
+      const dl = document.getElementById("current-download");
       dl.href = streamUrl;
-      dl.style.display = 'inline-flex';
+      dl.style.display = "inline-flex";
 
       renderCatalog();
     }
 
-    // Auto-advance to next track when finished
-    document.getElementById('player-video').addEventListener('ended', () => {
+    document.getElementById("player-video").addEventListener("error", () => {
+      document.getElementById("codec-alert").style.display = "flex";
+    });
+
+    document.getElementById("player-video").addEventListener("ended", () => {
       if (activeIndex + 1 < playlist.length) {
         playMedia(activeIndex + 1, true);
       }
     });
 
-    // Auto-init
+    function openCurrentInExternalModal() {
+      if (activeIndex >= 0 && activeIndex < playlist.length) {
+        openItemInExternalModal(activeIndex);
+      }
+    }
+
+    function openItemInExternalModal(idx) {
+      if (idx < 0 || idx >= playlist.length) return;
+      modalItem = playlist[idx];
+      const fullUrl = getFullStreamUrl(modalItem);
+      const m3uUrl = getM3uUrl(modalItem);
+
+      document.getElementById("modal-track-name").innerText = modalItem.name;
+      document.getElementById("modal-url-input").value = fullUrl;
+      document.getElementById("modal-m3u-link").href = m3uUrl;
+      document.getElementById("modal-m3u-link").download = modalItem.name.replace(RegExp("[^\\w\\.\\-]", "g"), "_") + ".m3u";
+
+      const isAndroid = /Android/i.test(navigator.userAgent);
+      const androidBtn = document.getElementById("modal-android-btn");
+      if (androidBtn) {
+        androidBtn.style.display = isAndroid ? "inline-flex" : "none";
+      }
+
+      document.getElementById("external-modal").style.display = "flex";
+    }
+
+    function closeExternalModal() {
+      document.getElementById("external-modal").style.display = "none";
+    }
+
+    document.getElementById("external-modal").addEventListener("click", (e) => {
+      if (e.target.id === "external-modal") {
+        closeExternalModal();
+      }
+    });
+
+    function launchVlcProtocol() {
+      if (!modalItem) return;
+      const fullUrl = getFullStreamUrl(modalItem);
+      const isAndroid = /Android/i.test(navigator.userAgent);
+
+      if (isAndroid) {
+        const cleanUrl = fullUrl.replace(RegExp("^https?://"), "");
+        const scheme = fullUrl.startsWith("https") ? "https" : "http";
+        const mimeType = (modalItem.type === "audio") ? "audio/*" : "video/*";
+        const vlcIntent = "intent://" + cleanUrl + "#Intent;scheme=" + scheme + ";type=" + mimeType + ";package=org.videolan.vlc;end";
+        window.location.href = vlcIntent;
+        setTimeout(() => {
+          window.location.href = "vlc://" + fullUrl;
+        }, 1200);
+      } else {
+        window.location.href = "vlc://" + fullUrl;
+      }
+    }
+
+    function launchAndroidPlayerIntent() {
+      if (!modalItem) return;
+      const fullUrl = getFullStreamUrl(modalItem);
+      const cleanUrl = fullUrl.replace(RegExp("^https?://"), "");
+      const scheme = fullUrl.startsWith("https") ? "https" : "http";
+      const mimeType = (modalItem.type === "audio") ? "audio/*" : "video/*";
+      const genericIntent = "intent://" + cleanUrl + "#Intent;scheme=" + scheme + ";type=" + mimeType + ";end";
+      window.location.href = genericIntent;
+    }
+
+    function copyModalUrl() {
+      const input = document.getElementById("modal-url-input");
+      input.select();
+      navigator.clipboard.writeText(input.value).then(() => {
+        const textSpan = document.getElementById("modal-copy-text");
+        textSpan.innerText = "Copied!";
+        setTimeout(() => { textSpan.innerText = "Copy"; }, 2000);
+      }).catch(() => {
+        document.execCommand("copy");
+      });
+    }
+
+    function copyCurrentStreamUrl() {
+      if (activeIndex < 0 || activeIndex >= playlist.length) return;
+      const item = playlist[activeIndex];
+      const fullUrl = getFullStreamUrl(item);
+      navigator.clipboard.writeText(fullUrl).then(() => {
+        const textSpan = document.getElementById("copy-btn-text");
+        textSpan.innerText = "Copied!";
+        setTimeout(() => { textSpan.innerText = "Copy URL"; }, 2000);
+      });
+    }
+
     if (requiredPin) {
-      if (sessionStorage.getItem('speedshare_stream_pin')) {
+      if (sessionStorage.getItem("speedshare_stream_pin")) {
         unlockStream();
       }
     } else {
@@ -1060,3 +1404,4 @@ class WebPortalHtml {
         .replaceAll('"', '&quot;');
   }
 }
+
