@@ -2517,65 +2517,85 @@ class FileSenderScreenState extends State<FileSenderScreen>
                     ),
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
 
           // Bottom navigation
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _currentStep = 1;
-                    });
-                  },
-                  icon: const Icon(Icons.arrow_back),
-                  label: const Text('Back'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF4E6AF3),
-                    side: const BorderSide(color: Color(0xFF4E6AF3)),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+          SafeArea(
+            top: false,
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _currentStep = 1;
+                      });
+                    },
+                    icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                    label: const Text('Back'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF4E6AF3),
+                      side: const BorderSide(
+                        color: Color(0xFF4E6AF3),
+                        width: 1.2,
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                flex: 2,
-                child: ElevatedButton.icon(
-                  onPressed:
-                      (_filesSelected &&
-                              _selectedReceiverIndex >= 0 &&
-                              _selectedReceiverIndex <
-                                  _filteredReceivers.length)
-                          ? () => connectToReceiver(
-                            _filteredReceivers[_selectedReceiverIndex].ip,
-                            _filteredReceivers[_selectedReceiverIndex].name,
-                          )
-                          : null,
-                  icon:
-                      isConnecting
-                          ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
-                            ),
-                          )
-                          : const Icon(Icons.send),
-                  label: Text(
-                    isConnecting ? 'Connecting...' : 'Send Files',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    backgroundColor: const Color(0xFF4E6AF3),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    disabledBackgroundColor: Colors.grey[400],
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton.icon(
+                    onPressed:
+                        (_filesSelected &&
+                                _selectedReceiverIndex >= 0 &&
+                                _selectedReceiverIndex <
+                                    _filteredReceivers.length)
+                            ? () => connectToReceiver(
+                              _filteredReceivers[_selectedReceiverIndex].ip,
+                              _filteredReceivers[_selectedReceiverIndex].name,
+                            )
+                            : null,
+                    icon:
+                        isConnecting
+                            ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            )
+                            : const Icon(Icons.send_rounded, size: 18),
+                    label: Text(
+                      isConnecting ? 'Connecting...' : 'Send Files',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      backgroundColor: const Color(0xFF4E6AF3),
+                      disabledForegroundColor:
+                          Theme.of(context).brightness == Brightness.dark
+                              ? Colors.white38
+                              : Colors.grey[500],
+                      disabledBackgroundColor:
+                          Theme.of(context).brightness == Brightness.dark
+                              ? const Color(0xFF222638)
+                              : Colors.grey[300],
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
@@ -2583,94 +2603,109 @@ class FileSenderScreenState extends State<FileSenderScreen>
   }
 
   Widget _buildEmptyReceiverState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          ScaleTransition(
-            scale: _pulseAnimation,
-            child: Container(
-              width: 90,
-              height: 90,
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  colors: [
-                    const Color(0xFF4E6AF3).withValues(alpha: 0.15),
-                    const Color(0xFF4E6AF3).withValues(alpha: 0.04),
-                  ],
-                ),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: const Color(0xFF4E6AF3).withValues(alpha: 0.3),
-                  width: 1.5,
-                ),
-              ),
-              child: Icon(
-                Icons.devices_rounded,
-                size: 44,
-                color: const Color(0xFF4E6AF3).withValues(alpha: 0.7),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text(
-            'No receivers found',
-            style: TextStyle(
-              color:
-                  Theme.of(context).brightness == Brightness.dark
-                      ? Colors.grey[300]
-                      : Colors.grey[700],
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Text(
-              'Make sure other devices are on the same network and have receiving enabled',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey[500], fontSize: 13),
-            ),
-          ),
-          const SizedBox(height: 24),
-          OutlinedButton.icon(
-            onPressed: isScanning ? null : startScanning,
-            icon:
-                isScanning
-                    ? SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: const Color(0xFF4E6AF3),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: IntrinsicHeight(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: 12),
+                  ScaleTransition(
+                    scale: _pulseAnimation,
+                    child: Container(
+                      width: 68,
+                      height: 68,
+                      decoration: BoxDecoration(
+                        gradient: RadialGradient(
+                          colors: [
+                            const Color(0xFF4E6AF3).withValues(alpha: 0.15),
+                            const Color(0xFF4E6AF3).withValues(alpha: 0.04),
+                          ],
+                        ),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: const Color(0xFF4E6AF3).withValues(alpha: 0.3),
+                          width: 1.5,
+                        ),
                       ),
-                    )
-                    : const Icon(Icons.refresh_rounded),
-            label: Text(isScanning ? 'Scanning...' : 'Scan Again'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFF4E6AF3),
-              side: const BorderSide(color: Color(0xFF4E6AF3), width: 1.5),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            ),
-          ),
-          const SizedBox(height: 12),
-          ElevatedButton.icon(
-            onPressed: _startWebShare,
-            icon: const Icon(Icons.language_rounded, size: 18),
-            label: const Text('Share via Web Browser (No App Needed)'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2AB673),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+                      child: Icon(
+                        Icons.devices_rounded,
+                        size: 32,
+                        color: const Color(0xFF4E6AF3).withValues(alpha: 0.8),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    'No receivers found',
+                    style: TextStyle(
+                      color: isDark ? Colors.grey[200] : Colors.grey[800],
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Text(
+                      'Make sure other devices are on the same Wi-Fi and have SpeedShare open',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: isDark ? Colors.grey[400] : Colors.grey[600],
+                        fontSize: 12,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: isScanning ? null : startScanning,
+                    icon:
+                        isScanning
+                            ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Color(0xFF4E6AF3),
+                              ),
+                            )
+                            : const Icon(Icons.refresh_rounded, size: 16),
+                    label: Text(
+                      isScanning ? 'Scanning...' : 'Scan Again',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF4E6AF3),
+                      side: const BorderSide(
+                        color: Color(0xFF4E6AF3),
+                        width: 1.2,
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 9,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
               ),
-              elevation: 0,
             ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
