@@ -19,6 +19,8 @@ import 'package:speedsharemob/NetworkStatusWidget.dart';
 import 'package:speedsharemob/SpeedShareAppBar.dart';
 import 'package:speedsharemob/NotificationService.dart';
 import 'package:speedsharemob/BackgroundService.dart';
+import 'package:speedsharemob/WebPortalHtml.dart';
+import 'package:speedsharemob/DeviceAccessGuideModal.dart';
 
 enum SyncTabMode { connect, sync }
 
@@ -76,6 +78,28 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
   // Animation
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
+  String? _hostIp;
+
+  Future<void> _loadHostIp() async {
+    try {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLinkLocal: false,
+      );
+      for (var iface in interfaces) {
+        for (var addr in iface.addresses) {
+          if (!addr.isLoopback && addr.type == InternetAddressType.IPv4) {
+            if (mounted) {
+              setState(() {
+                _hostIp = addr.address;
+              });
+            }
+            return;
+          }
+        }
+      }
+    } catch (_) {}
+  }
   
   @override
   void initState() {
@@ -84,6 +108,7 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
     _initializeSync();
     _loadSettings();
     _startDiscovery();
+    _loadHostIp();
   }
 
   @override
@@ -576,6 +601,7 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
     }
 
     try {
+      await _loadHostIp();
       _accessCode = _generateAccessCode();
       
       _storageServer = await HttpServer.bind(InternetAddress.anyIPv4, 8082);
@@ -683,11 +709,38 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
   }
 
   void _handleStorageRequest(HttpRequest request) async {
+    // Add CORS headers for web browsers
+    request.response.headers.add('Access-Control-Allow-Origin', '*');
+    request.response.headers.add(
+      'Access-Control-Allow-Methods',
+      'GET, HEAD, OPTIONS',
+    );
+    request.response.headers.add('Access-Control-Allow-Headers', '*');
+
+    if (request.method == 'OPTIONS') {
+      request.response.statusCode = 204;
+      await request.response.close();
+      return;
+    }
+
     try {
       final uri = request.uri;
       final clientIp = request.connectionInfo?.remoteAddress.address ?? 'unknown';
 
-      // Handle info/ping without access code requirement
+      // 1. Web Portal HTML endpoint for Browser access
+      if (uri.path == '/' || uri.path == '/index.html') {
+        final deviceName = await DeviceNameManager.getDeviceName();
+        final html = WebPortalHtml.getSyncWebHtml(
+          hostDeviceName: deviceName,
+          accessCode: _accessCode,
+        );
+        request.response.headers.contentType = ContentType.html;
+        request.response.write(html);
+        await request.response.close();
+        return;
+      }
+
+      // 2. Handle info/ping without access code requirement
       if (uri.path == '/api/info' || uri.path == '/api/ping') {
         final deviceName = await DeviceNameManager.getDeviceName();
         final info = json.encode({
@@ -730,7 +783,8 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _handleFileListRequest(HttpRequest request, String clientIp) async {
-    final requestedPath = request.uri.queryParameters['path'] ?? '/';
+    final rawPath = request.uri.queryParameters['path'];
+    final requestedPath = (rawPath == null || rawPath.trim().isEmpty) ? '/' : rawPath;
     final files = <Map<String, dynamic>>[];
     
     _recordClientActivity(
@@ -855,7 +909,7 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _handleFileDownloadRequest(HttpRequest request, [String clientIp = 'unknown']) async {
-    final filePath = request.uri.queryParameters['file'];
+    final filePath = request.uri.queryParameters['file'] ?? request.uri.queryParameters['path'];
     final isPreview = request.uri.queryParameters['preview'] == 'true';
     
     if (filePath == null || !_isPathAllowed(filePath)) {
@@ -1923,6 +1977,89 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
                         Icons.copy,
                         color: Color(0xFF4E6AF3),
                         size: 16,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2AB673).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: const Color(0xFF2AB673).withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.language_rounded,
+                          color: Color(0xFF2AB673),
+                          size: 16,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Web Portal: http://${_hostIp ?? '192.168.x.x'}:8082',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF2AB673),
+                            ),
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () {
+                            final url = 'http://${_hostIp ?? '192.168.x.x'}:8082';
+                            Clipboard.setData(ClipboardData(text: url));
+                            _showSuccessSnackBar('Web URL copied to clipboard');
+                          },
+                          child: const Icon(
+                            Icons.copy,
+                            color: Color(0xFF2AB673),
+                            size: 16,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          final url = 'http://${_hostIp ?? '192.168.x.x'}:8082';
+                          DeviceAccessGuideModal.show(
+                            context,
+                            url: url,
+                            pin: _accessCode,
+                            title: 'Storage Sync Web Portal',
+                            subtitle:
+                                'Browse files from any iPhone, Android, Mac, or PC browser',
+                            icon: Icons.folder_shared_rounded,
+                          );
+                        },
+                        icon: const Icon(Icons.devices_rounded, size: 14),
+                        label: const Text(
+                          'How to open on iOS / Android / PC',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF2AB673),
+                          side: BorderSide(
+                            color: const Color(0xFF2AB673).withValues(alpha: 0.5),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 6,
+                            horizontal: 10,
+                          ),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
                       ),
                     ),
                   ],

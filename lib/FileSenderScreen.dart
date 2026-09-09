@@ -1,8 +1,8 @@
 import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:mime/mime.dart';
@@ -16,6 +16,8 @@ import 'package:speedsharemob/SharedContentService.dart';
 import 'package:speedsharemob/BackgroundService.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:speedsharemob/FastFilePicker.dart';
+import 'package:speedsharemob/WebPortalHtml.dart';
+import 'package:speedsharemob/DeviceAccessGuideModal.dart';
 
 class FileSenderScreen extends StatefulWidget {
   const FileSenderScreen({super.key});
@@ -66,6 +68,13 @@ class FileSenderScreenState extends State<FileSenderScreen>
   String _userLogin = '';
   bool _isPreparingFiles = false; // shown while file metadata is being read
   bool _isPickingFiles = false;   // shown during the file picker processing gap
+
+  // Web Share (Browser URL access)
+  HttpServer? _webShareServer;
+  int _webSharePort = 8085;
+  String? _webShareIp;
+  bool _isWebSharing = false;
+  int _webShareDownloads = 0;
 
   @override
   void initState() {
@@ -1253,6 +1262,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
     _discoveryTimer?.cancel();
     _discoverySocket?.close();
     socket?.close();
+    _webShareServer?.close(force: true);
     super.dispose();
   }
 
@@ -1394,6 +1404,389 @@ class FileSenderScreenState extends State<FileSenderScreen>
           },
         );
       },
+    );
+  }
+
+  Future<String?> _getSenderLocalIp() async {
+    try {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLinkLocal: false,
+      );
+      for (var iface in interfaces) {
+        for (var addr in iface.addresses) {
+          if (!addr.isLoopback && addr.type == InternetAddressType.IPv4) {
+            return addr.address;
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> _startWebShare() async {
+    if (_selectedFiles.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select files first')),
+      );
+      return;
+    }
+
+    try {
+      _webShareIp = await _getSenderLocalIp();
+      try {
+        _webShareServer = await HttpServer.bind(InternetAddress.anyIPv4, 8085);
+        _webSharePort = 8085;
+      } catch (_) {
+        _webShareServer = await HttpServer.bind(InternetAddress.anyIPv4, 0);
+        _webSharePort = _webShareServer!.port;
+      }
+
+      _webShareServer!.listen(_handleWebShareRequest);
+
+      setState(() {
+        _isWebSharing = true;
+      });
+
+      if (!mounted) return;
+      final url = 'http://${_webShareIp ?? '192.168.x.x'}:$_webSharePort';
+      DeviceAccessGuideModal.show(
+        context,
+        url: url,
+        title: 'Web Browser Download',
+        subtitle: 'Download shared files directly on any phone or PC browser',
+        icon: Icons.language_rounded,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to start Web Share: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _stopWebShare() async {
+    await _webShareServer?.close(force: true);
+    _webShareServer = null;
+    if (mounted) {
+      setState(() {
+        _isWebSharing = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Web Share stopped')),
+      );
+    }
+  }
+
+  void _handleWebShareRequest(HttpRequest request) async {
+    // Add CORS headers for web browsers
+    request.response.headers.add('Access-Control-Allow-Origin', '*');
+    request.response.headers.add(
+      'Access-Control-Allow-Methods',
+      'GET, HEAD, OPTIONS',
+    );
+    request.response.headers.add('Access-Control-Allow-Headers', '*');
+
+    if (request.method == 'OPTIONS') {
+      request.response.statusCode = 204;
+      await request.response.close();
+      return;
+    }
+
+    try {
+      final uri = request.uri;
+
+      // 1. Root endpoint: HTML5 Download Portal
+      if (uri.path == '/' || uri.path == '/index.html') {
+        final hostName = await DeviceNameManager.getDeviceName();
+        final filesMeta = _selectedFiles.asMap().entries.map((e) => {
+          'index': e.key,
+          'name': e.value.name,
+          'size': e.value.size,
+        }).toList();
+
+        final html = WebPortalHtml.getWebShareHtml(
+          hostDeviceName: hostName,
+          files: filesMeta,
+        );
+        request.response.headers.contentType = ContentType.html;
+        request.response.write(html);
+        await request.response.close();
+        return;
+      }
+
+      // 2. Download file endpoint
+      if (uri.path == '/download') {
+        final indexStr = uri.queryParameters['index'];
+        final index = int.tryParse(indexStr ?? '');
+        if (index == null || index < 0 || index >= _selectedFiles.length) {
+          request.response.statusCode = 404;
+          request.response.write('File not found');
+          await request.response.close();
+          return;
+        }
+
+        final fileItem = _selectedFiles[index];
+        final file = fileItem.file;
+        if (!await file.exists()) {
+          request.response.statusCode = 404;
+          request.response.write('File does not exist on disk');
+          await request.response.close();
+          return;
+        }
+
+        if (mounted) {
+          setState(() {
+            _webShareDownloads++;
+          });
+        }
+
+        final fileName = p.basename(fileItem.file.path);
+        final mimeTypeStr =
+            lookupMimeType(fileItem.file.path) ?? 'application/octet-stream';
+        ContentType contentType;
+        try {
+          final parts = mimeTypeStr.split('/');
+          contentType =
+              parts.length == 2
+                  ? ContentType(parts[0], parts[1])
+                  : ContentType.binary;
+        } catch (_) {
+          contentType = ContentType.binary;
+        }
+
+        request.response.headers.contentType = contentType;
+        request.response.headers.add('Accept-Ranges', 'bytes');
+        request.response.headers.add(
+          'Content-Disposition',
+          'attachment; filename="${Uri.encodeComponent(fileName)}"',
+        );
+        request.response.headers.add(
+          'Content-Length',
+          (await file.length()).toString(),
+        );
+
+        await request.response.addStream(file.openRead());
+        await request.response.close();
+        return;
+      }
+
+      request.response.statusCode = 404;
+      await request.response.close();
+    } catch (e) {
+      request.response.statusCode = 500;
+      await request.response.close();
+    }
+  }
+
+  Widget _buildWebShareCard() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final accentGreen = const Color(0xFF2AB673);
+    final primaryBlue = const Color(0xFF4E6AF3);
+
+    if (_isWebSharing) {
+      final url = 'http://${_webShareIp ?? '192.168.x.x'}:$_webSharePort';
+      return Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: accentGreen.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: accentGreen.withValues(alpha: 0.35),
+            width: 1.5,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: accentGreen,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'WEB SHARE ACTIVE',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (_webShareDownloads > 0)
+                  Text(
+                    '$_webShareDownloads download${_webShareDownloads == 1 ? '' : 's'}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark ? Colors.grey[400] : Colors.grey[600],
+                    ),
+                  ),
+                const Spacer(),
+                TextButton(
+                  onPressed: _stopWebShare,
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                  ),
+                  child: const Text(
+                    'Stop Sharing',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: SelectableText(
+                    url,
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : const Color(0xFF1E1E1E),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: url));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Web URL copied to clipboard'),
+                        backgroundColor: Color(0xFF2AB673),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.copy_rounded, size: 14),
+                  label: const Text('Copy', style: TextStyle(fontSize: 11)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: accentGreen,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  DeviceAccessGuideModal.show(
+                    context,
+                    url: url,
+                    title: 'Web Browser Download',
+                    subtitle:
+                        'Download shared files on any iPhone, Android, Mac, or PC',
+                    icon: Icons.language_rounded,
+                  );
+                },
+                icon: const Icon(Icons.devices_rounded, size: 14),
+                label: const Text(
+                  'How to open on iOS / Android / PC',
+                  style: TextStyle(fontSize: 11),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: accentGreen,
+                  side: BorderSide(
+                    color: accentGreen.withValues(alpha: 0.5),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1A1D2E) : const Color(0xFFEEF2FF),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: primaryBlue.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: accentGreen.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.language_rounded, size: 18, color: accentGreen),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Share via Web Browser',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+                Text(
+                  'No app needed on receiver (iOS, PC, Mac, Android)',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark ? Colors.grey[400] : Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ElevatedButton(
+            onPressed: _startWebShare,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: accentGreen,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 8,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+              elevation: 0,
+            ),
+            child: const Text(
+              'Start Web Share',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2022,6 +2415,9 @@ class FileSenderScreenState extends State<FileSenderScreen>
 
           const SizedBox(height: 12),
 
+          // Web Share Card (Browser URL access)
+          _buildWebShareCard(),
+
           // Receiver list
           Expanded(
             child:
@@ -2256,6 +2652,21 @@ class FileSenderScreenState extends State<FileSenderScreen>
               foregroundColor: const Color(0xFF4E6AF3),
               side: const BorderSide(color: Color(0xFF4E6AF3), width: 1.5),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            ),
+          ),
+          const SizedBox(height: 12),
+          ElevatedButton.icon(
+            onPressed: _startWebShare,
+            icon: const Icon(Icons.language_rounded, size: 18),
+            label: const Text('Share via Web Browser (No App Needed)'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2AB673),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              elevation: 0,
             ),
           ),
         ],

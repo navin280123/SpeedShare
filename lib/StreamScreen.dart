@@ -17,6 +17,8 @@ import 'package:speedsharemob/NetworkStatusWidget.dart';
 import 'package:speedsharemob/SpeedShareAppBar.dart';
 import 'package:speedsharemob/BackgroundService.dart';
 import 'package:speedsharemob/FastFilePicker.dart';
+import 'package:speedsharemob/WebPortalHtml.dart';
+import 'package:speedsharemob/DeviceAccessGuideModal.dart';
 
 enum StreamTabMode { connect, stream }
 
@@ -156,6 +158,28 @@ class StreamScreenState extends State<StreamScreen>
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   late AnimationController _discRotationController;
+  String? _hostIp;
+
+  Future<void> _loadHostIp() async {
+    try {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLinkLocal: false,
+      );
+      for (var iface in interfaces) {
+        for (var addr in iface.addresses) {
+          if (!addr.isLoopback && addr.type == InternetAddressType.IPv4) {
+            if (mounted) {
+              setState(() {
+                _hostIp = addr.address;
+              });
+            }
+            return;
+          }
+        }
+      }
+    } catch (_) {}
+  }
 
   @override
   void initState() {
@@ -164,6 +188,7 @@ class StreamScreenState extends State<StreamScreen>
     _initAudioListeners();
     _initDiscovery();
     _startPeriodicDiscovery();
+    _loadHostIp();
   }
 
   @override
@@ -621,6 +646,7 @@ class StreamScreenState extends State<StreamScreen>
     }
 
     try {
+      await _loadHostIp();
       // Generate 4-digit numeric code
       _accessCode = (1000 + Random().nextInt(9000)).toString();
 
@@ -742,6 +768,19 @@ class StreamScreenState extends State<StreamScreen>
       final uri = request.uri;
       final clientIp =
           request.connectionInfo?.remoteAddress.address ?? 'unknown';
+
+      // 0. Web Player HTML Endpoint for Browser Access
+      if (uri.path == '/' || uri.path == '/index.html') {
+        final deviceName = await DeviceNameManager.getDeviceName();
+        final html = WebPortalHtml.getStreamWebHtml(
+          hostDeviceName: deviceName,
+          accessCode: _accessCode,
+        );
+        request.response.headers.contentType = ContentType.html;
+        request.response.write(html);
+        await request.response.close();
+        return;
+      }
 
       // 1. Info / Ping Endpoint
       if (uri.path == '/api/stream/info') {
@@ -2305,6 +2344,93 @@ class StreamScreenState extends State<StreamScreen>
                                 },
                               ),
                             ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2AB673).withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: const Color(0xFF2AB673).withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.language_rounded,
+                                color: Color(0xFF2AB673),
+                                size: 16,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Web Player: http://${_hostIp ?? '192.168.x.x'}:$_serverPort',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF2AB673),
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.copy_rounded,
+                                  size: 16,
+                                  color: Color(0xFF2AB673),
+                                ),
+                                tooltip: 'Copy URL',
+                                onPressed: () {
+                                  final url =
+                                      'http://${_hostIp ?? '192.168.x.x'}:$_serverPort';
+                                  Clipboard.setData(ClipboardData(text: url));
+                                  _showSnackBar('Stream URL copied to clipboard');
+                                },
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                final url =
+                                    'http://${_hostIp ?? '192.168.x.x'}:$_serverPort';
+                                DeviceAccessGuideModal.show(
+                                  context,
+                                  url: url,
+                                  pin: _accessCode,
+                                  title: 'Live Media Stream Web Player',
+                                  subtitle:
+                                      'Stream music & video on any iPhone, Android, Mac, or PC browser',
+                                  icon: Icons.play_circle_filled_rounded,
+                                );
+                              },
+                              icon: const Icon(Icons.devices_rounded, size: 14),
+                              label: const Text(
+                                'How to open on iOS / Android / PC',
+                                style: TextStyle(fontSize: 11),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF2AB673),
+                                side: BorderSide(
+                                  color: const Color(0xFF2AB673)
+                                      .withValues(alpha: 0.5),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 6,
+                                  horizontal: 10,
+                                ),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
                           ),
                         ],
                       ),
