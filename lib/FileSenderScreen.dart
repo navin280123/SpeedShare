@@ -25,8 +25,12 @@ class FileSenderScreen extends StatefulWidget {
 }
 
 class FileSenderScreenState extends State<FileSenderScreen>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   late AnimationController _controller;
+  // Pulse animation controller for empty receiver state
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
+
   bool _isSending = false;
   double _progress = 0.0;
   int _totalFileSize = 0;
@@ -35,6 +39,12 @@ class FileSenderScreenState extends State<FileSenderScreen>
   bool _filesSelected = false;
   List<FileToSend> _selectedFiles = [];
   bool _transferComplete = false;
+
+  // Speed & ETA tracking
+  double _transferSpeedBps = 0.0;
+  int _etaSeconds = 0;
+  DateTime _speedSampleTime = DateTime.now();
+  int _speedSampleBytes = 0;
 
   bool isScanning = false;
   bool isConnecting = false;
@@ -66,6 +76,15 @@ class FileSenderScreenState extends State<FileSenderScreen>
     _controller = AnimationController(
       duration: const Duration(milliseconds: 400),
       vsync: this,
+    );
+
+    _pulseController = AnimationController(
+      duration: const Duration(milliseconds: 1200),
+      vsync: this,
+    )..repeat(reverse: true);
+
+    _pulseAnimation = Tween<double>(begin: 0.92, end: 1.08).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
     _controller.forward();
@@ -581,7 +600,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
             ),
             backgroundColor: Colors.red[700],
             behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 3),
+            duration: const Duration(seconds: 6),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10),
             ),
@@ -804,6 +823,9 @@ class FileSenderScreenState extends State<FileSenderScreen>
   void _sendCurrentFileData() async {
     if (socket == null || _currentFileIndex >= _selectedFiles.length) return;
     final currentFile = _selectedFiles[_currentFileIndex];
+    // Reset speed sample at start of each file
+    _speedSampleTime = DateTime.now();
+    _speedSampleBytes = 0;
     try {
       final int bufferSize = currentFile.size > 500 * 1024 * 1024
           ? 128 * 1024
@@ -841,6 +863,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
           socket!.add(subChunk);
           bytesSent += subChunk.length;
           _totalBytesSent += subChunk.length;
+          _speedSampleBytes += subChunk.length;
           bytesUnflushed += subChunk.length;
 
           // Backpressure control: flush socket buffer periodically to prevent disk reading
@@ -852,14 +875,28 @@ class FileSenderScreenState extends State<FileSenderScreen>
         }
 
         final now = DateTime.now();
+        final elapsedMs = now.difference(_speedSampleTime).inMilliseconds;
+
         if (bytesSent - lastProgressUpdate >= updateThreshold &&
             now.difference(lastStateUpdateTime).inMilliseconds >= 100 &&
             mounted) {
+          // Compute speed every ~300 ms
+          double speed = 0.0;
+          int eta = 0;
+          if (elapsedMs >= 300 && _speedSampleBytes > 0) {
+            speed = _speedSampleBytes / (elapsedMs / 1000.0);
+            _speedSampleTime = now;
+            _speedSampleBytes = 0;
+            final remainingBytes = currentFile.size - bytesSent;
+            if (speed > 0) eta = (remainingBytes / speed).round();
+          }
           setState(() {
             _selectedFiles[_currentFileIndex].progress =
                 bytesSent / currentFile.size;
             _selectedFiles[_currentFileIndex].bytesSent = bytesSent;
             _progress = _totalBytesSent / _totalFileSize;
+            if (speed > 0) _transferSpeedBps = speed;
+            if (eta > 0) _etaSeconds = eta;
           });
           lastProgressUpdate = bytesSent;
           lastStateUpdateTime = now;
@@ -920,7 +957,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
             ),
             backgroundColor: Colors.red[700],
             behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 3),
+            duration: const Duration(seconds: 6),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10),
             ),
@@ -953,26 +990,10 @@ class FileSenderScreenState extends State<FileSenderScreen>
         _isSending = false;
         _transferComplete = true;
         _progress = 1.0;
+        _transferSpeedBps = 0.0;
+        _etaSeconds = 0;
         BackgroundService.stop(key: 'send');
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.check_circle_rounded, color: Colors.white),
-                SizedBox(width: 10),
-                Text('All files sent successfully!'),
-              ],
-            ),
-            backgroundColor: const Color(0xFF2AB673),
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 3), // Bug 4: auto-dismiss after 3s
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-            margin: EdgeInsets.all(20),
-          ),
-        );
+        // Success is now shown as an in-screen card — no SnackBar needed.
       } else {
         // For next file: send metadata, wait for READY_FOR_FILE_DATA, then send data
         _sendCurrentFileMetadata();
@@ -1113,6 +1134,49 @@ class FileSenderScreenState extends State<FileSenderScreen>
         .toList();
   }
 
+  /// Returns an appropriate device icon based on device name keywords.
+  IconData _getDeviceIcon(String deviceName) {
+    final lower = deviceName.toLowerCase();
+    if (lower.contains('phone') ||
+        lower.contains('mobile') ||
+        lower.contains('android') ||
+        lower.contains('iphone') ||
+        lower.contains('pixel') ||
+        lower.contains('samsung') ||
+        lower.contains('oneplus') ||
+        lower.contains('redmi') ||
+        lower.contains('xiaomi') ||
+        lower.contains('oppo') ||
+        lower.contains('vivo')) {
+      return Icons.phone_android_rounded;
+    } else if (lower.contains('tablet') || lower.contains('pad') || lower.contains('ipad')) {
+      return Icons.tablet_android_rounded;
+    } else if (lower.contains('mac') || lower.contains('macbook')) {
+      return Icons.laptop_mac_rounded;
+    } else if (lower.contains('laptop') || lower.contains('notebook')) {
+      return Icons.laptop_rounded;
+    }
+    return Icons.computer_rounded;
+  }
+
+  /// Returns speed as human-readable string (e.g. "12.4 MB/s")
+  String _formatSpeed(double bps) {
+    if (bps <= 0) return '';
+    if (bps < 1024) return '${bps.toStringAsFixed(0)} B/s';
+    if (bps < 1024 * 1024) return '${(bps / 1024).toStringAsFixed(1)} KB/s';
+    if (bps < 1024 * 1024 * 1024) return '${(bps / (1024 * 1024)).toStringAsFixed(1)} MB/s';
+    return '${(bps / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB/s';
+  }
+
+  /// Returns ETA as human-readable string (e.g. "~12s" or "~2m 5s")
+  String _formatEta(int seconds) {
+    if (seconds <= 0) return '';
+    if (seconds < 60) return '~${seconds}s';
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    return '~${m}m ${s}s';
+  }
+
   IconData _getFileIconData(String fileType) {
     if (fileType.startsWith('image/')) {
       return Icons.image_rounded;
@@ -1184,6 +1248,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
     _sharedFilesSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
+    _pulseController.dispose();
     _scanTimer?.cancel();
     _discoveryTimer?.cancel();
     _discoverySocket?.close();
@@ -1431,8 +1496,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
   }
 
   Widget _buildStepItem(int step, String label, bool isActive) {
-    return Expanded(
-      child: Column(
+    return Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
@@ -1477,15 +1541,19 @@ class FileSenderScreenState extends State<FileSenderScreen>
             textAlign: TextAlign.center,
           ),
         ],
-      ),
     );
   }
 
   Widget _buildStepConnector(bool isActive) {
-    return Container(
-      width: 20,
-      height: 2,
-      color: isActive ? const Color(0xFF4E6AF3) : Colors.grey[300],
+    return Expanded(
+      child: Container(
+        height: 2,
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        decoration: BoxDecoration(
+          color: isActive ? const Color(0xFF4E6AF3) : Colors.grey[300],
+          borderRadius: BorderRadius.circular(1),
+        ),
+      ),
     );
   }
 
@@ -2008,7 +2076,9 @@ class FileSenderScreenState extends State<FileSenderScreen>
                                       shape: BoxShape.circle,
                                     ),
                                     child: Icon(
-                                      isSelected ? Icons.check : Icons.computer,
+                                      isSelected
+                                          ? Icons.check
+                                          : _getDeviceIcon(receiver.name),
                                       color:
                                           isSelected
                                               ? const Color(0xFF4E6AF3)
@@ -2121,25 +2191,32 @@ class FileSenderScreenState extends State<FileSenderScreen>
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              color: (Theme.of(context).brightness == Brightness.dark
-                      ? Colors.white
-                      : Colors.black)
-                  .withValues(alpha: 0.05),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.devices_rounded,
-              size: 40,
-              color: Theme.of(context).brightness == Brightness.dark
-                  ? Colors.grey[400]
-                  : Colors.grey[600],
+          ScaleTransition(
+            scale: _pulseAnimation,
+            child: Container(
+              width: 90,
+              height: 90,
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  colors: [
+                    const Color(0xFF4E6AF3).withValues(alpha: 0.15),
+                    const Color(0xFF4E6AF3).withValues(alpha: 0.04),
+                  ],
+                ),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: const Color(0xFF4E6AF3).withValues(alpha: 0.3),
+                  width: 1.5,
+                ),
+              ),
+              child: Icon(
+                Icons.devices_rounded,
+                size: 44,
+                color: const Color(0xFF4E6AF3).withValues(alpha: 0.7),
+              ),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           Text(
             'No receivers found',
             style: TextStyle(
@@ -2273,9 +2350,43 @@ class FileSenderScreenState extends State<FileSenderScreen>
 
               const SizedBox(height: 6),
 
-              Text(
-                'Sending file ${_currentFileIndex + 1} of ${_selectedFiles.length}',
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Sending file ${_currentFileIndex + 1} of ${_selectedFiles.length}',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                  if (_isSending && _transferSpeedBps > 0)
+                    Row(
+                      children: [
+                        Icon(Icons.upload_rounded,
+                            size: 13, color: const Color(0xFF4E6AF3)),
+                        const SizedBox(width: 3),
+                        Text(
+                          _formatSpeed(_transferSpeedBps),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF4E6AF3),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (_etaSeconds > 0) ...[
+                          const SizedBox(width: 8),
+                          Icon(Icons.timer_rounded,
+                              size: 13, color: Colors.grey[500]),
+                          const SizedBox(width: 3),
+                          Text(
+                            _formatEta(_etaSeconds),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                ],
               ),
             ],
           ),
@@ -2457,6 +2568,110 @@ class FileSenderScreenState extends State<FileSenderScreen>
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
+              ),
+            ),
+          ] else if (_transferComplete) ...[
+            // ── SUCCESS CARD ──────────────────────────────────────────────
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF2AB673), Color(0xFF1DA460)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF2AB673).withValues(alpha: 0.35),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  const Icon(Icons.check_circle_rounded,
+                      color: Colors.white, size: 52),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'All files sent successfully!',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 17,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Sent to ${_receiverName ?? "device"}',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.85),
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              _currentStep = 2;
+                              _transferComplete = false;
+                              _progress = 0.0;
+                              _totalBytesSent = 0;
+                              _currentFileIndex = 0;
+                              for (var f in _selectedFiles) {
+                                f.progress = 0.0;
+                                f.bytesSent = 0;
+                                f.status = 'Pending';
+                              }
+                            });
+                          },
+                          icon: const Icon(Icons.send_rounded,
+                              color: Colors.white, size: 16),
+                          label: const Text('Send Again',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold)),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Colors.white70),
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 10),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              _currentStep = 1;
+                              _filesSelected = false;
+                              _selectedFiles = [];
+                              _transferComplete = false;
+                              _totalFileSize = 0;
+                              _totalBytesSent = 0;
+                              _currentFileIndex = 0;
+                            });
+                          },
+                          icon: const Icon(Icons.add_rounded, size: 16),
+                          label: const Text('New Transfer',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            foregroundColor: const Color(0xFF2AB673),
+                            backgroundColor: Colors.white,
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 10),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ] else ...[

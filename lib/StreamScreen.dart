@@ -150,6 +150,7 @@ class StreamScreenState extends State<StreamScreen>
   StreamSubscription? _audioCompleteSub;
   double _audioVolume = 1.0;
   bool _isAudioLoop = false;
+  bool _isAudioShuffle = false;
 
   // Animation Controllers
   late AnimationController _pulseController;
@@ -497,10 +498,12 @@ class StreamScreenState extends State<StreamScreen>
               final prioritySet = <int>{};
               prioritySet.add(1); // Gateway
               for (int delta = 1; delta <= 20; delta++) {
-                if (currentOctet - delta >= 1)
+                if (currentOctet - delta >= 1) {
                   prioritySet.add(currentOctet - delta);
-                if (currentOctet + delta <= 254)
+                }
+                if (currentOctet + delta <= 254) {
                   prioritySet.add(currentOctet + delta);
+                }
               }
               for (int i = 1; i <= 254; i++) {
                 prioritySet.add(i);
@@ -1243,6 +1246,20 @@ class StreamScreenState extends State<StreamScreen>
                 .toList();
 
     if (list.isEmpty || _currentAudioItem == null) return;
+
+    if (_isAudioShuffle && list.length > 1) {
+      // Pick a random track that is NOT the current one
+      int nextIndex;
+      do {
+        nextIndex = Random().nextInt(list.length);
+      } while (list[nextIndex].id == _currentAudioItem!.id && list.length > 1);
+      _playMediaItem(
+        list[nextIndex],
+        isLocalHost: _activeTab == StreamTabMode.stream,
+      );
+      return;
+    }
+
     final currentIndex = list.indexWhere((m) => m.id == _currentAudioItem!.id);
     if (currentIndex != -1 && currentIndex + 1 < list.length) {
       _playMediaItem(
@@ -1308,9 +1325,20 @@ class StreamScreenState extends State<StreamScreen>
         backgroundColor: isError ? Colors.redAccent : const Color(0xFF2AB673),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        duration: const Duration(seconds: 3),
+        duration: Duration(seconds: isError ? 6 : 3),
       ),
     );
+  }
+
+  /// Deterministically generates two artwork colours from a track name.
+  List<Color> _getArtworkColors(String name) {
+    final hash = name.codeUnits.fold<int>(0, (h, c) => h * 31 + c) & 0xFFFFFFFF;
+    final h1 = (hash % 360).toDouble();
+    final h2 = (h1 + 90 + (hash >> 8) % 80) % 360;
+    return [
+      HSLColor.fromAHSL(1.0, h1, 0.65, 0.40).toColor(),
+      HSLColor.fromAHSL(1.0, h2, 0.55, 0.30).toColor(),
+    ];
   }
 
   // --- UI BUILD METHODS ---
@@ -1373,7 +1401,7 @@ class StreamScreenState extends State<StreamScreen>
           const SizedBox(width: 4),
           Expanded(
             child: _buildTabButton(
-              title: 'Stream / Host',
+              title: 'Host Media',
               icon: Icons.podcasts_rounded,
               isSelected: _activeTab == StreamTabMode.stream,
               onTap: () => setState(() => _activeTab = StreamTabMode.stream),
@@ -1769,11 +1797,13 @@ class StreamScreenState extends State<StreamScreen>
     final filtered =
         _remoteCatalog.where((item) {
           if (_selectedCategoryFilter == 'Music' &&
-              item.type != StreamMediaType.audio)
+              item.type != StreamMediaType.audio) {
             return false;
+          }
           if (_selectedCategoryFilter == 'Videos' &&
-              item.type != StreamMediaType.video)
+              item.type != StreamMediaType.video) {
             return false;
+          }
           if (_searchQuery.isNotEmpty &&
               !item.name.toLowerCase().contains(_searchQuery.toLowerCase())) {
             return false;
@@ -2665,25 +2695,32 @@ class StreamScreenState extends State<StreamScreen>
               const SizedBox(height: 6),
               Row(
                 children: [
-                  // Animated Vinyl Disc
+                  // Animated Vinyl Disc with colour-derived artwork
                   RotationTransition(
                     turns: _discRotationController,
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFF4E6AF3), Color(0xFF2AB673)],
-                        ),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Center(
-                        child: Icon(
-                          Icons.music_note_rounded,
-                          color: Colors.white,
-                          size: 20,
-                        ),
-                      ),
+                    child: Builder(
+                      builder: (context) {
+                        final colors = _getArtworkColors(item.name);
+                        return Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: colors,
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Center(
+                            child: Icon(
+                              Icons.music_note_rounded,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -2862,23 +2899,26 @@ class StreamScreenState extends State<StreamScreen>
                       ],
                     ),
                     const SizedBox(height: 24),
-                    // Vinyl Disc / Artwork Display
+                    // Vinyl Disc / Artwork Display — colour-derived per track
                     Expanded(
                       child: Center(
                         child: RotationTransition(
                           turns: _discRotationController,
-                          child: Container(
+                          child: Builder(
+                            builder: (context) {
+                              final colors = _getArtworkColors(item.name);
+                              return Container(
                             width: 220,
                             height: 220,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              gradient: const RadialGradient(
+                              gradient: RadialGradient(
                                 colors: [
-                                  Color(0xFF2B2B36),
-                                  Color(0xFF111118),
-                                  Color(0xFF4E6AF3),
+                                  colors[0].withValues(alpha: 0.9),
+                                  colors[1],
+                                  colors[0].withValues(alpha: 0.7),
                                 ],
-                                stops: [0.0, 0.85, 1.0],
+                                stops: const [0.0, 0.75, 1.0],
                               ),
                               boxShadow: [
                                 BoxShadow(
@@ -2897,6 +2937,8 @@ class StreamScreenState extends State<StreamScreen>
                                 color: Colors.white70,
                               ),
                             ),
+                          );
+                            },
                           ),
                         ),
                       ),
@@ -2976,6 +3018,18 @@ class StreamScreenState extends State<StreamScreen>
                           ),
                           onPressed: () {
                             setState(() => _isAudioLoop = !_isAudioLoop);
+                            setModalState(() {});
+                          },
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            Icons.shuffle_rounded,
+                            color: _isAudioShuffle
+                                ? const Color(0xFF4E6AF3)
+                                : Colors.grey,
+                          ),
+                          onPressed: () {
+                            setState(() => _isAudioShuffle = !_isAudioShuffle);
                             setModalState(() {});
                           },
                         ),

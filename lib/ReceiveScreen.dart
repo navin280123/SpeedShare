@@ -39,7 +39,7 @@ class ReceiveScreenState extends State<ReceiveScreen>
   String downloadDirectoryPath = '';
   bool isLoadingIp = true;
   bool isReceivingAnimation = false;
-  bool _isFilesExpanded = false; // Default collapsed
+  bool _isFilesExpanded = true; // Default expanded so files are visible
 
   // Active in-progress download tracking for clean app termination
   IOSink? _activeSink;
@@ -53,6 +53,15 @@ class ReceiveScreenState extends State<ReceiveScreen>
   int _totalFilesInBatch = 0;
   int _currentFileInBatch = 0;
   Timer? _idleResetTimer; // Bug 4: auto-clear progress UI after completion
+
+  // Sender identification
+  String _senderName = '';
+
+  // Speed & ETA tracking
+  double _receiveSpeedBps = 0.0;
+  int _receiveEtaSeconds = 0;
+  DateTime _rxSampleTime = DateTime.now();
+  int _rxSampleBytes = 0;
 
   // Animation controller
   late AnimationController _animationController;
@@ -524,10 +533,17 @@ class ReceiveScreenState extends State<ReceiveScreen>
               // Bug 3: read batch info sent by FileSenderScreen
               final totalFiles = (metadata['totalFiles'] as int?) ?? 1;
               final fileIndex = (metadata['fileIndex'] as int?) ?? 0;
+              final senderFromMeta = (metadata['sender'] as String?) ?? '';
               if (mounted) {
                 setState(() {
                   _totalFilesInBatch = totalFiles;
                   _currentFileInBatch = fileIndex + 1;
+                  _senderName = senderFromMeta;
+                  // Reset speed tracking at start of each file
+                  _rxSampleTime = DateTime.now();
+                  _rxSampleBytes = 0;
+                  _receiveSpeedBps = 0.0;
+                  _receiveEtaSeconds = 0;
                 });
               }
 
@@ -636,16 +652,29 @@ class ReceiveScreenState extends State<ReceiveScreen>
             _activeSink?.add(data);
             writtenFileBytes += data.length;
             _activeWrittenBytes = writtenFileBytes;
+            _rxSampleBytes += data.length;
 
             final now = DateTime.now();
             if (writtenFileBytes < expectedFileSize) {
+              final elapsedMs = now.difference(_rxSampleTime).inMilliseconds;
               if (now.difference(lastProgressTime).inMilliseconds >= 30 &&
                   mounted) {
+                double speed = 0.0;
+                int eta = 0;
+                if (elapsedMs >= 300 && _rxSampleBytes > 0) {
+                  speed = _rxSampleBytes / (elapsedMs / 1000.0);
+                  _rxSampleTime = now;
+                  _rxSampleBytes = 0;
+                  final remaining = expectedFileSize - writtenFileBytes;
+                  if (speed > 0) eta = (remaining / speed).round();
+                }
                 setState(() {
                   bytesReceived = writtenFileBytes;
                   progress = expectedFileSize > 0
                       ? (writtenFileBytes / expectedFileSize).clamp(0.0, 0.999)
                       : 0.0;
+                  if (speed > 0) _receiveSpeedBps = speed;
+                  if (eta > 0) _receiveEtaSeconds = eta;
                 });
                 lastProgressTime = now;
               }
@@ -806,6 +835,9 @@ class ReceiveScreenState extends State<ReceiveScreen>
                     progress = 0.0;
                     _totalFilesInBatch = 0;
                     _currentFileInBatch = 0;
+                    _senderName = '';
+                    _receiveSpeedBps = 0.0;
+                    _receiveEtaSeconds = 0;
                   });
                 }
               });
@@ -964,6 +996,9 @@ class ReceiveScreenState extends State<ReceiveScreen>
         progress = 0.0;
         _totalFilesInBatch = 0;
         _currentFileInBatch = 0;
+        _senderName = '';
+        _receiveSpeedBps = 0.0;
+        _receiveEtaSeconds = 0;
       });
 
       ScaffoldMessenger.of(context).clearSnackBars();
@@ -1009,6 +1044,9 @@ class ReceiveScreenState extends State<ReceiveScreen>
         progress = 0.0;
         _totalFilesInBatch = 0;
         _currentFileInBatch = 0;
+        _senderName = '';
+        _receiveSpeedBps = 0.0;
+        _receiveEtaSeconds = 0;
       });
 
       ScaffoldMessenger.of(context).clearSnackBars();
@@ -1247,6 +1285,24 @@ class ReceiveScreenState extends State<ReceiveScreen>
     return fileName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
   }
 
+  /// Returns speed as human-readable string
+  String _formatSpeed(double bps) {
+    if (bps <= 0) return '';
+    if (bps < 1024) return '${bps.toStringAsFixed(0)} B/s';
+    if (bps < 1024 * 1024) return '${(bps / 1024).toStringAsFixed(1)} KB/s';
+    if (bps < 1024 * 1024 * 1024) return '${(bps / (1024 * 1024)).toStringAsFixed(1)} MB/s';
+    return '${(bps / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB/s';
+  }
+
+  /// Returns ETA as human-readable string
+  String _formatEta(int seconds) {
+    if (seconds <= 0) return '';
+    if (seconds < 60) return '~${seconds}s';
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    return '~${m}m ${s}s';
+  }
+
   String _formatFileSize(int bytes) {
     if (bytes < 1024) {
       return '$bytes B';
@@ -1349,7 +1405,14 @@ class ReceiveScreenState extends State<ReceiveScreen>
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 800),
-            child: Padding(
+            child: RefreshIndicator(
+              onRefresh: () async {
+                await _getIpAddress();
+                if (downloadDirectoryPath.isNotEmpty) {
+                  _loadReceivedFiles(Directory(downloadDirectoryPath));
+                }
+              },
+              child: Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1376,123 +1439,143 @@ class ReceiveScreenState extends State<ReceiveScreen>
             ],
           ),
         ),
-        ),
+            ),
+          ),
         ),
       ),
     );
   }
 
   Widget _buildStatusSection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Status indicator
-            Row(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Gradient accent strip at top
+          Container(
+            height: 4,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: isReceiving
+                    ? [const Color(0xFF2AB673), const Color(0xFF4E6AF3)]
+                    : [Colors.grey.shade400, Colors.grey.shade300],
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (isReceivingAnimation)
-                  ScaleTransition(
-                    scale: _pulseAnimation,
-                    child: Container(
-                      width: 12,
-                      height: 12,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2AB673),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF2AB673).withValues(alpha: 0.3),
-                            blurRadius: 6,
-                            spreadRadius: 1,
+                // Status indicator
+                Row(
+                  children: [
+                    if (isReceivingAnimation)
+                      ScaleTransition(
+                        scale: _pulseAnimation,
+                        child: Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2AB673),
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF2AB673).withValues(alpha: 0.3),
+                                blurRadius: 6,
+                                spreadRadius: 1,
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
+                      )
+                    else
+                      Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color:
+                              isReceiving ? const Color(0xFF2AB673) : Colors.grey,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    const SizedBox(width: 8),
+                    Text(
+                      isReceiving ? 'Listening for files' : 'Not receiving',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: isReceiving ? const Color(0xFF2AB673) : null,
                       ),
                     ),
-                  )
-                else
-                  Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      color:
-                          isReceiving ? const Color(0xFF2AB673) : Colors.grey,
-                      shape: BoxShape.circle,
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+
+                // Device details
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildInfoItem(
+                        'Device Name',
+                        computerName,
+                        Icons.smartphone_rounded,
+                      ),
                     ),
-                  ),
-                const SizedBox(width: 8),
-                Text(
-                  isReceiving ? 'Listening for files' : 'Not receiving',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                    color: isReceiving ? const Color(0xFF2AB673) : null,
-                  ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: _buildInfoItem(
+                        'IP Address',
+                        isLoadingIp ? 'Loading...' : ipAddress,
+                        Icons.wifi_rounded,
+                        onTap: isLoadingIp ? null : _copyIpToClipboard,
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 20),
+
+                // Control buttons — equal width side by side
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: isReceiving ? null : startReceiving,
+                        icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                        label: const Text('Start Receiving'),
+                        style: ElevatedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          backgroundColor: const Color(0xFF2AB673),
+                          disabledBackgroundColor:
+                              isDark ? Colors.grey[700] : Colors.grey[300],
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: isReceiving ? stopReceiving : null,
+                        icon: const Icon(Icons.stop_rounded, size: 18),
+                        label: const Text('Stop'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red,
+                          side: BorderSide(
+                              color: isReceiving ? Colors.red : Colors.grey),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-
-            const SizedBox(height: 16),
-
-            // Device details
-            Row(
-              children: [
-                Expanded(
-                  child: _buildInfoItem(
-                    'Device Name',
-                    computerName,
-                    Icons.smartphone_rounded,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildInfoItem(
-                    'IP Address',
-                    isLoadingIp ? 'Loading...' : ipAddress,
-                    Icons.wifi_rounded,
-                    onTap: isLoadingIp ? null : _copyIpToClipboard,
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 20),
-
-            // Control buttons
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: isReceiving ? null : startReceiving,
-                    icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                    label: const Text('Start Receiving'),
-                    style: ElevatedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      backgroundColor: const Color(0xFF2AB673),
-                      disabledBackgroundColor: Colors.grey[400],
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                SizedBox(
-                  height: 48,
-                  child: OutlinedButton.icon(
-                    onPressed: isReceiving ? stopReceiving : null,
-                    icon: const Icon(Icons.stop_rounded, size: 18),
-                    label: const Text('Stop'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.red,
-                      side: const BorderSide(color: Colors.red),
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1641,6 +1724,15 @@ class ReceiveScreenState extends State<ReceiveScreen>
                                   : Colors.grey[600],
                         ),
                       ),
+                      if (_senderName.isNotEmpty)
+                        Text(
+                          'From: $_senderName',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: const Color(0xFF4E6AF3).withValues(alpha: 0.85),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -1667,7 +1759,7 @@ class ReceiveScreenState extends State<ReceiveScreen>
 
             const SizedBox(height: 8),
 
-            // Progress percentage
+            // Progress percentage + speed/ETA row
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -1679,27 +1771,51 @@ class ReceiveScreenState extends State<ReceiveScreen>
                     color: Color(0xFF4E6AF3),
                   ),
                 ),
-                const Row(
+                Row(
                   children: [
-                    SizedBox(
-                      width: 12,
-                      height: 12,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          Color(0xFF4E6AF3),
+                    if (_receiveSpeedBps > 0) ...[
+                      Icon(Icons.download_rounded, size: 13,
+                          color: const Color(0xFF4E6AF3)),
+                      const SizedBox(width: 3),
+                      Text(
+                        _formatSpeed(_receiveSpeedBps),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF4E6AF3),
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                    ),
-                    SizedBox(width: 6),
-                    Text(
-                      'Receiving...',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontStyle: FontStyle.italic,
-                        color: Color(0xFF4E6AF3),
+                      if (_receiveEtaSeconds > 0) ...[
+                        const SizedBox(width: 8),
+                        Icon(Icons.timer_rounded, size: 13,
+                            color: Colors.grey[500]),
+                        const SizedBox(width: 3),
+                        Text(
+                          _formatEta(_receiveEtaSeconds),
+                          style: TextStyle(
+                              fontSize: 12, color: Colors.grey[600]),
+                        ),
+                      ],
+                    ] else ...[
+                      const SizedBox(
+                        width: 12, height: 12,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Color(0xFF4E6AF3),
+                          ),
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 6),
+                      const Text(
+                        'Receiving...',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic,
+                          color: Color(0xFF4E6AF3),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ],

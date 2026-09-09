@@ -1477,7 +1477,7 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
     return Scaffold(
       appBar: const SpeedShareAppBar(
         title: 'Storage Sync',
-        subtitle: 'Browse & share device storage',
+        subtitle: 'Remote file browser & download',
         icon: Icons.sync_rounded,
       ),
       body: SafeArea(
@@ -2475,6 +2475,49 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
     );
   }
 
+  Widget _buildBreadcrumbBar() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // Build list of path segments from current path
+    final segments = <String>[];
+    if (_currentRemotePath != '/') {
+      final parts = _currentRemotePath.split('/').where((s) => s.isNotEmpty).toList();
+      for (int i = 0; i < parts.length; i++) {
+        segments.add(parts.sublist(0, i + 1).join('/'));
+      }
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      color: isDark ? Colors.grey[850] : Colors.grey[100],
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            // Root chip
+            _BreadcrumbChip(
+              label: 'Root',
+              icon: Icons.folder_shared_rounded,
+              isLast: segments.isEmpty,
+              onTap: segments.isEmpty ? null : () => _loadRemoteFiles('/'),
+            ),
+            // Path segment chips
+            for (int i = 0; i < segments.length; i++) ...[
+              const Icon(Icons.chevron_right, size: 14, color: Colors.grey),
+              _BreadcrumbChip(
+                label: segments[i].split('/').last,
+                isLast: i == segments.length - 1,
+                onTap: i == segments.length - 1
+                    ? null
+                    : () => _loadRemoteFiles('/${segments[i]}'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildFileBrowser() {
     final isPhotoFolder =
         _currentRemotePath != '/' && _isPhotoRelatedFolder(_currentRemotePath);
@@ -2530,45 +2573,8 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
         body: SafeArea(
           child: Column(
             children: [
-              // Path indicator
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                color: Theme.of(context).brightness == Brightness.dark
-                    ? Colors.grey[850]
-                    : Colors.grey[100],
-                child: Row(
-                  children: [
-                    Icon(
-                      _currentRemotePath == '/'
-                          ? Icons.folder_shared_rounded
-                          : Icons.folder_open_rounded,
-                      size: 16,
-                      color: const Color(0xFF4E6AF3),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _currentRemotePath == '/'
-                            ? 'Shared Folders (Choose folder)'
-                            : _currentRemotePath,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).brightness == Brightness.dark
-                              ? Colors.grey[300]
-                              : Colors.grey[700],
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              // Breadcrumb navigation bar
+              _buildBreadcrumbBar(),
 
               // Date Range Filter Bar (ONLY shown when inside a photo-related folder like Camera/DCIM)
               if (isPhotoFolder)
@@ -2637,46 +2643,9 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
                           )
                         : ListView.builder(
                             padding: const EdgeInsets.all(8),
-                            itemCount: _currentRemotePath != '/'
-                                ? displayedFiles.length + 1
-                                : displayedFiles.length,
+                            itemCount: displayedFiles.length,
                             itemBuilder: (context, index) {
-                              if (_currentRemotePath != '/' && index == 0) {
-                                return Card(
-                                  margin: const EdgeInsets.only(bottom: 6),
-                                  child: ListTile(
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 4,
-                                    ),
-                                    leading: Container(
-                                      padding: const EdgeInsets.all(8),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF4E6AF3)
-                                            .withValues(alpha: 0.1),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: const Icon(
-                                        Icons.arrow_upward_rounded,
-                                        color: Color(0xFF4E6AF3),
-                                        size: 20,
-                                      ),
-                                    ),
-                                    title: const Text(
-                                      '.. (Back to Shared Folders)',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                    onTap: _navigateUp,
-                                  ),
-                                );
-                              }
-
-                              final fileIndex = _currentRemotePath != '/'
-                                  ? index - 1
-                                  : index;
+                              final fileIndex = index;
                               final file = displayedFiles[fileIndex];
                               final task = _getDownloadTask(file.path);
                               final isReceiving = task != null &&
@@ -2720,11 +2689,23 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
                                           children: [
                                             if (isReceiving) ...[
                                               Text(
-                                                'Receiving: ${_formatFileSize(task.receivedBytes)} / ${_formatFileSize(task.totalBytes)} (${(task.progress * 100).toInt()}%)',
+                                                '${_formatFileSize(task.receivedBytes)} / ${_formatFileSize(task.totalBytes)}',
                                                 style: const TextStyle(
                                                   fontSize: 12,
                                                   color: Color(0xFF4E6AF3),
                                                   fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              ClipRRect(
+                                                borderRadius: BorderRadius.circular(2),
+                                                child: LinearProgressIndicator(
+                                                  value: task.progress.clamp(0.0, 1.0),
+                                                  minHeight: 3,
+                                                  backgroundColor:
+                                                      const Color(0xFF4E6AF3).withValues(alpha: 0.2),
+                                                  valueColor: const AlwaysStoppedAnimation<Color>(
+                                                      Color(0xFF4E6AF3)),
                                                 ),
                                               ),
                                             ] else ...[
@@ -3937,4 +3918,64 @@ class DownloadTask {
     this.totalBytes = 0,
   });
 }
-  
+
+/// A single tappable breadcrumb chip in the sync file browser navigation bar.
+class _BreadcrumbChip extends StatelessWidget {
+  final String label;
+  final IconData? icon;
+  final bool isLast;
+  final VoidCallback? onTap;
+
+  const _BreadcrumbChip({
+    required this.label,
+    this.icon,
+    required this.isLast,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: isLast
+              ? const Color(0xFF4E6AF3).withValues(alpha: 0.12)
+              : (isDark ? Colors.grey[800] : Colors.grey[200]),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isLast
+                ? const Color(0xFF4E6AF3).withValues(alpha: 0.4)
+                : Colors.transparent,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon,
+                  size: 13,
+                  color: isLast
+                      ? const Color(0xFF4E6AF3)
+                      : (isDark ? Colors.grey[400] : Colors.grey[600])),
+              const SizedBox(width: 4),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: isLast ? FontWeight.bold : FontWeight.w500,
+                color: isLast
+                    ? const Color(0xFF4E6AF3)
+                    : (isDark ? Colors.grey[400] : Colors.grey[700]),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

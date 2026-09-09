@@ -133,7 +133,7 @@ class BackgroundService {
   }
 
   /// Called when the task isolate sends data to the main isolate.
-  /// Button press events arrive as the string 'cancel_<key>' or 'stop_<key>'.
+  /// Button press events arrive as the string `cancel_<key>` or `stop_<key>`.
   static void _onTaskData(Object data) {
     if (data is! String) return;
     String key = '';
