@@ -1,9 +1,10 @@
 // DeviceAccessGuideModal.dart
 // Explains clearly to users how to access SpeedShare web portals
-// across iOS, Android, macOS, Windows, and Linux.
+// across iOS, Android, macOS, Windows, and Linux, with official app download links.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class DeviceAccessGuideModal extends StatefulWidget {
   final String url;
@@ -81,6 +82,9 @@ class _DeviceAccessGuideModalState extends State<DeviceAccessGuideModal>
         'Tap Download or Play. Downloaded files will appear in your notification bar and Downloads folder.',
       ],
       tip: 'Chrome allows downloading multiple files simultaneously at full Wi-Fi speeds.',
+      appDownloadUrl:
+          'https://play.google.com/store/apps/details?id=com.navnit.speedshare&hl=en_IN',
+      appDownloadLabel: 'Get on Google Play Store',
     ),
     _OsGuideItem(
       os: 'macOS',
@@ -94,6 +98,9 @@ class _DeviceAccessGuideModalState extends State<DeviceAccessGuideModal>
         'Browse shared files, click Download, or stream music and videos directly.',
       ],
       tip: 'You can also open network streams in VLC Media Player (File -> Open Network).',
+      appDownloadUrl:
+          'https://github.com/navin280123/SpeedShare/blob/main/installers/Speed%20Share.dmg',
+      appDownloadLabel: 'Download macOS App (.dmg)',
     ),
     _OsGuideItem(
       os: 'Windows',
@@ -107,6 +114,9 @@ class _DeviceAccessGuideModalState extends State<DeviceAccessGuideModal>
         'Files download straight to your C:\\Users\\...\\Downloads folder.',
       ],
       tip: 'If Windows Firewall asks to allow private network communication on the host device, click "Allow".',
+      appDownloadUrl:
+          'https://apps.microsoft.com/detail/9pfbqjvlrwng?hl=en-GB&gl=IN',
+      appDownloadLabel: 'Get from Microsoft Store',
     ),
     _OsGuideItem(
       os: 'Linux',
@@ -120,6 +130,9 @@ class _DeviceAccessGuideModalState extends State<DeviceAccessGuideModal>
         'You can also download directly via terminal using wget or curl!',
       ],
       tip: 'Command-line tip: wget -r --no-parent <URL> to grab shared files.',
+      appDownloadUrl:
+          'https://github.com/navin280123/SpeedShare/blob/main/installers/speedshare_amd64.deb',
+      appDownloadLabel: 'Download Linux Package (.deb)',
     ),
   ];
 
@@ -133,6 +146,24 @@ class _DeviceAccessGuideModalState extends State<DeviceAccessGuideModal>
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  Future<void> _openExternalUrl(String urlString) async {
+    try {
+      final uri = Uri.parse(urlString);
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        await launchUrl(uri);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not open link: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   void _copyToClipboard(String text, bool isPin) {
@@ -173,7 +204,7 @@ class _DeviceAccessGuideModalState extends State<DeviceAccessGuideModal>
     final cardBg = isDark ? const Color(0xFF1E2235) : Colors.white;
 
     return DraggableScrollableSheet(
-      initialChildSize: 0.82,
+      initialChildSize: 0.85,
       minChildSize: 0.5,
       maxChildSize: 0.95,
       builder: (context, scrollController) {
@@ -202,22 +233,37 @@ class _DeviceAccessGuideModalState extends State<DeviceAccessGuideModal>
                 ),
               ),
 
-              // Header
+              // Header with real SpeedShare App Icon
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                 child: Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(10),
+                      padding: const EdgeInsets.all(3),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [primaryColor, accentColor],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: primaryColor.withValues(alpha: 0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                       ),
-                      child: Icon(widget.icon, color: Colors.white, size: 22),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(11),
+                        child: Image.asset(
+                          'assets/icon.png',
+                          width: 38,
+                          height: 38,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
                     ),
                     const SizedBox(width: 14),
                     Expanded(
@@ -437,9 +483,9 @@ class _DeviceAccessGuideModalState extends State<DeviceAccessGuideModal>
 
                     const SizedBox(height: 14),
 
-                    // Tab View container with fixed height
+                    // Tab View container
                     SizedBox(
-                      height: 250,
+                      height: 290,
                       child: TabBarView(
                         controller: _tabController,
                         children: _osList.map((item) {
@@ -447,6 +493,11 @@ class _DeviceAccessGuideModalState extends State<DeviceAccessGuideModal>
                         }).toList(),
                       ),
                     ),
+
+                    const SizedBox(height: 20),
+
+                    // Official App Download Links Section
+                    _buildOfficialAppDownloadsCard(isDark, cardBg, primaryColor),
 
                     const SizedBox(height: 16),
 
@@ -505,6 +556,180 @@ class _DeviceAccessGuideModalState extends State<DeviceAccessGuideModal>
     );
   }
 
+  Widget _buildOfficialAppDownloadsCard(bool isDark, Color cardBg, Color primaryColor) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: primaryColor.withValues(alpha: 0.25),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: Image.asset(
+                  'assets/icon.png',
+                  width: 20,
+                  height: 20,
+                  fit: BoxFit.cover,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                'GET OFFICIAL SPEEDSHARE APP',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.6,
+                  color: Color(0xFF4E6AF3),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Install the native app on your receiver device for full background sync and top Wi-Fi speeds:',
+            style: TextStyle(
+              fontSize: 11.5,
+              color: isDark ? Colors.grey[400] : Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Android
+          _buildAppDownloadTile(
+            title: 'Android',
+            subtitle: 'Google Play Store',
+            url: 'https://play.google.com/store/apps/details?id=com.navnit.speedshare&hl=en_IN',
+            icon: Icons.android_rounded,
+            badgeColor: const Color(0xFF3DDC84),
+            isDark: isDark,
+          ),
+          const SizedBox(height: 8),
+
+          // Windows
+          _buildAppDownloadTile(
+            title: 'Windows',
+            subtitle: 'Microsoft Store',
+            url: 'https://apps.microsoft.com/detail/9pfbqjvlrwng?hl=en-GB&gl=IN',
+            icon: Icons.desktop_windows_rounded,
+            badgeColor: const Color(0xFF0078D4),
+            isDark: isDark,
+          ),
+          const SizedBox(height: 8),
+
+          // macOS
+          _buildAppDownloadTile(
+            title: 'macOS',
+            subtitle: 'Direct .dmg Installer',
+            url: 'https://github.com/navin280123/SpeedShare/blob/main/installers/Speed%20Share.dmg',
+            icon: Icons.laptop_mac_rounded,
+            badgeColor: const Color(0xFFA2AAAD),
+            isDark: isDark,
+          ),
+          const SizedBox(height: 8),
+
+          // Linux
+          _buildAppDownloadTile(
+            title: 'Linux',
+            subtitle: 'Debian / Ubuntu .deb package',
+            url: 'https://github.com/navin280123/SpeedShare/blob/main/installers/speedshare_amd64.deb',
+            icon: Icons.terminal_rounded,
+            badgeColor: const Color(0xFFE95420),
+            isDark: isDark,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAppDownloadTile({
+    required String title,
+    required String subtitle,
+    required String url,
+    required IconData icon,
+    required Color badgeColor,
+    required bool isDark,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.black.withValues(alpha: 0.25) : Colors.grey.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.grey.withValues(alpha: 0.15)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: badgeColor.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 18, color: badgeColor),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark ? Colors.grey[400] : Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.copy_rounded, size: 16),
+            tooltip: 'Copy download link',
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: url));
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('$title download link copied to clipboard'),
+                  backgroundColor: const Color(0xFF2AB673),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            },
+          ),
+          ElevatedButton(
+            onPressed: () => _openExternalUrl(url),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4E6AF3),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              minimumSize: Size.zero,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              elevation: 0,
+            ),
+            child: const Text('Get App', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildOsGuideView(_OsGuideItem item, bool isDark, Color cardBg, Color primaryColor) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -542,7 +767,7 @@ class _DeviceAccessGuideModalState extends State<DeviceAccessGuideModal>
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           Expanded(
             child: ListView.builder(
               padding: EdgeInsets.zero,
@@ -589,7 +814,7 @@ class _DeviceAccessGuideModalState extends State<DeviceAccessGuideModal>
             ),
           ),
           if (item.tip.isNotEmpty) ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
@@ -607,6 +832,27 @@ class _DeviceAccessGuideModalState extends State<DeviceAccessGuideModal>
                     ),
                   ),
                 ],
+              ),
+            ),
+          ],
+          if (item.appDownloadUrl != null) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _openExternalUrl(item.appDownloadUrl!),
+                icon: const Icon(Icons.download_rounded, size: 15),
+                label: Text(
+                  item.appDownloadLabel ?? 'Download App',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  elevation: 0,
+                ),
               ),
             ),
           ],
@@ -644,6 +890,8 @@ class _OsGuideItem {
   final String browser;
   final List<String> steps;
   final String tip;
+  final String? appDownloadUrl;
+  final String? appDownloadLabel;
 
   const _OsGuideItem({
     required this.os,
@@ -652,5 +900,7 @@ class _OsGuideItem {
     required this.browser,
     required this.steps,
     required this.tip,
+    this.appDownloadUrl,
+    this.appDownloadLabel,
   });
 }
