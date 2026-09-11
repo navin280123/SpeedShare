@@ -1,8 +1,12 @@
+#ifndef MyAppVersion
+#define MyAppVersion "1.2.2"
+#endif
+
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application.
 AppId={{5A1B8C9D-E23F-47A6-9128-DBF5A9A01C2E}
 AppName=SpeedShare
-AppVersion=1.0.0
+AppVersion={#MyAppVersion}
 AppPublisher=SpeedShare Team
 AppPublisherURL=https://github.com/navin280123/speedsharemob
 DefaultDirName={userpf}\SpeedShare

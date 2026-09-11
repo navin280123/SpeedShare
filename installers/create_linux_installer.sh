@@ -8,15 +8,20 @@ set -e
 # Change directory to the repository root
 cd "$(dirname "$0")/.."
 
-echo "=== Building Speed Share Linux Release ==="
-flutter build linux --release
-
 # Packaging Variables
 APP_NAME="speedshare"
-VERSION=$(grep '^version: ' pubspec.yaml | sed 's/version: //' | cut -d '+' -f 1 | tr -d '[:space:]')
+FULL_VERSION=$(grep '^version: ' pubspec.yaml | sed 's/version: //' | tr -d '[:space:]')
+VERSION="${1:-$(echo "$FULL_VERSION" | cut -d '+' -f 1)}"
+BUILD_NUMBER="${2:-$(echo "$FULL_VERSION" | cut -s -d '+' -f 2)}"
 if [ -z "$VERSION" ]; then
-  VERSION="1.1.2"
+  VERSION="1.2.2"
 fi
+if [ -z "$BUILD_NUMBER" ]; then
+  BUILD_NUMBER="17"
+fi
+
+echo "=== Building Speed Share Linux Release (v${VERSION}+${BUILD_NUMBER}) ==="
+flutter build linux --release --build-name="$VERSION" --build-number="$BUILD_NUMBER"
 DEB_DIR="installers"
 BUILD_DIR="build/linux/x64/release/bundle"
 TEMP_DIR="${DEB_DIR}/deb_temp"

@@ -15,22 +15,42 @@ on:
           - linux
           - macos
           - all
+      custom_version:
+        description: "Override version (e.g. 1.2.2+17). Leave blank to use pubspec.yaml"
+        required: false
+        default: ""
 
 permissions:
   contents: write # Grants permission to commit & push built installers back to repository
 
 jobs:
   # -------------------------------------------------------------
-  # 1. ANDROID BUILD (.apk)
+  # 1. ANDROID BUILD (.apk & .aab)
   # -------------------------------------------------------------
   build-android:
     if: github.event.inputs.platform == 'android' || github.event.inputs.platform == 'all'
-    name: Build Android APKs
+    name: Build Android Binaries
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Resolve Version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.custom_version }}" ]; then
+            RAW_VERSION="${{ github.event.inputs.custom_version }}"
+          else
+            RAW_VERSION=$(grep '^version: ' pubspec.yaml | sed 's/version: //' | tr -d '[:space:]')
+          fi
+          VERSION_NAME=$(echo "$RAW_VERSION" | cut -d '+' -f 1)
+          BUILD_NUMBER=$(echo "$RAW_VERSION" | cut -s -d '+' -f 2)
+          if [ -z "$BUILD_NUMBER" ]; then BUILD_NUMBER="1"; fi
+          echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
+          echo "full_version=${VERSION_NAME}+${BUILD_NUMBER}" >> $GITHUB_OUTPUT
+          echo "Building SpeedShare Android v${VERSION_NAME}+${BUILD_NUMBER}"
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -47,30 +67,53 @@ jobs:
       - name: Install Flutter dependencies
         run: flutter pub get
 
-      - name: Build Android APKs
+      - name: Build Android APKs and App Bundle
         run: |
-          flutter build apk --release
-          flutter build apk --release --split-per-abi
+          V_NAME="${{ steps.version.outputs.version_name }}"
+          B_NUM="${{ steps.version.outputs.build_number }}"
+          flutter build appbundle --release --build-name="$V_NAME" --build-number="$B_NUM"
+          flutter build apk --release --build-name="$V_NAME" --build-number="$B_NUM"
+          flutter build apk --release --split-per-abi --build-name="$V_NAME" --build-number="$B_NUM"
           mkdir -p installers
+          cp build/app/outputs/bundle/release/app-release.aab installers/
           cp build/app/outputs/flutter-apk/*.apk installers/
 
       - name: Upload Android Installers
         uses: actions/upload-artifact@v4
         with:
           name: android-installers
-          path: installers/*.apk
+          path: |
+            installers/*.apk
+            installers/*.aab
 
   # -------------------------------------------------------------
-  # 2. WINDOWS BUILD (.exe)
+  # 2. WINDOWS BUILD (.exe & .msix)
   # -------------------------------------------------------------
   build-windows:
     if: github.event.inputs.platform == 'windows' || github.event.inputs.platform == 'all'
-    name: Build Windows Setup (.exe)
+    name: Build Windows Setup (.exe) & MSIX
     runs-on: windows-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Resolve Version
+        id: version
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.custom_version }}" ]; then
+            RAW_VERSION="${{ github.event.inputs.custom_version }}"
+          else
+            RAW_VERSION=$(grep '^version: ' pubspec.yaml | sed 's/version: //' | tr -d '[:space:]')
+          fi
+          VERSION_NAME=$(echo "$RAW_VERSION" | cut -d '+' -f 1)
+          BUILD_NUMBER=$(echo "$RAW_VERSION" | cut -s -d '+' -f 2)
+          if [ -z "$BUILD_NUMBER" ]; then BUILD_NUMBER="1"; fi
+          echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
+          echo "full_version=${VERSION_NAME}+${BUILD_NUMBER}" >> $GITHUB_OUTPUT
+          echo "Building SpeedShare Windows v${VERSION_NAME}+${BUILD_NUMBER}"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -82,7 +125,10 @@ jobs:
         run: flutter pub get
 
       - name: Build Windows Application
-        run: flutter build windows --release
+        run: |
+          $vName = "${{ steps.version.outputs.version_name }}"
+          $bNum = "${{ steps.version.outputs.build_number }}"
+          flutter build windows --release --build-name=$vName --build-number=$bNum
 
       - name: Build MSIX Package for Microsoft Store
         run: dart run msix:create --store
@@ -92,11 +138,12 @@ jobs:
 
       - name: Compile Windows Setup (.exe) and Package (.msix)
         run: |
+          $vName = "${{ steps.version.outputs.version_name }}"
           if (!(Test-Path -Path "installers")) { New-Item -ItemType Directory -Path "installers" }
           if (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe") {
-            & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" inno_setup.iss
+            & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion="$vName" inno_setup.iss
           } else {
-            iscc inno_setup.iss
+            iscc /DMyAppVersion="$vName" inno_setup.iss
           }
           Get-ChildItem -Path "build\windows\x64\runner\Release\*.msix" | Copy-Item -Destination "installers/SpeedShare_Windows.msix"
 
@@ -105,7 +152,6 @@ jobs:
         with:
           name: windows-installers
           path: installers/*
-
 
   # -------------------------------------------------------------
   # 3. LINUX BUILD (.deb)
@@ -118,6 +164,22 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Resolve Version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.custom_version }}" ]; then
+            RAW_VERSION="${{ github.event.inputs.custom_version }}"
+          else
+            RAW_VERSION=$(grep '^version: ' pubspec.yaml | sed 's/version: //' | tr -d '[:space:]')
+          fi
+          VERSION_NAME=$(echo "$RAW_VERSION" | cut -d '+' -f 1)
+          BUILD_NUMBER=$(echo "$RAW_VERSION" | cut -s -d '+' -f 2)
+          if [ -z "$BUILD_NUMBER" ]; then BUILD_NUMBER="1"; fi
+          echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
+          echo "full_version=${VERSION_NAME}+${BUILD_NUMBER}" >> $GITHUB_OUTPUT
+          echo "Building SpeedShare Linux v${VERSION_NAME}+${BUILD_NUMBER}"
 
       - name: Install Linux build dependencies
         env:
@@ -150,7 +212,7 @@ jobs:
       - name: Build Linux Debian Package
         run: |
           chmod +x installers/create_linux_installer.sh
-          bash installers/create_linux_installer.sh
+          bash installers/create_linux_installer.sh "${{ steps.version.outputs.version_name }}" "${{ steps.version.outputs.build_number }}"
 
       - name: Upload Linux Installer
         uses: actions/upload-artifact@v4
@@ -170,6 +232,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Resolve Version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.custom_version }}" ]; then
+            RAW_VERSION="${{ github.event.inputs.custom_version }}"
+          else
+            RAW_VERSION=$(grep '^version: ' pubspec.yaml | sed 's/version: //' | tr -d '[:space:]')
+          fi
+          VERSION_NAME=$(echo "$RAW_VERSION" | cut -d '+' -f 1)
+          BUILD_NUMBER=$(echo "$RAW_VERSION" | cut -s -d '+' -f 2)
+          if [ -z "$BUILD_NUMBER" ]; then BUILD_NUMBER="1"; fi
+          echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
+          echo "Building SpeedShare macOS v${VERSION_NAME}+${BUILD_NUMBER}"
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -180,7 +257,8 @@ jobs:
         run: flutter pub get
 
       - name: Build macOS Application
-        run: flutter build macos --release
+        run: |
+          flutter build macos --release --build-name="${{ steps.version.outputs.version_name }}" --build-number="${{ steps.version.outputs.build_number }}"
 
       - name: Create macOS DMG
         run: |
@@ -211,6 +289,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Resolve Version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.custom_version }}" ]; then
+            RAW_VERSION="${{ github.event.inputs.custom_version }}"
+          else
+            RAW_VERSION=$(grep '^version: ' pubspec.yaml | sed 's/version: //' | tr -d '[:space:]')
+          fi
+          VERSION_NAME=$(echo "$RAW_VERSION" | cut -d '+' -f 1)
+          BUILD_NUMBER=$(echo "$RAW_VERSION" | cut -s -d '+' -f 2)
+          if [ -z "$BUILD_NUMBER" ]; then BUILD_NUMBER="1"; fi
+          echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
+          echo "Building SpeedShare iOS v${VERSION_NAME}+${BUILD_NUMBER}"
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -222,7 +315,7 @@ jobs:
 
       - name: Build iOS Application
         run: |
-          flutter build ios --release --no-codesign
+          flutter build ios --release --no-codesign --build-name="${{ steps.version.outputs.version_name }}" --build-number="${{ steps.version.outputs.build_number }}"
           mkdir -p installers
           rm -rf Payload
           mkdir -p Payload
@@ -259,11 +352,12 @@ jobs:
       - name: Copy installer binaries into installers directory
         run: |
           mkdir -p installers
-          find download-artifacts -type f \( -name "*.apk" -o -name "*.exe" -o -name "*.deb" -o -name "*.dmg" -o -name "*.ipa" -o -name "*.msix" \) -exec cp -v {} installers/ \;
+          find download-artifacts -type f \( -name "*.apk" -o -name "*.aab" -o -name "*.exe" -o -name "*.deb" -o -name "*.dmg" -o -name "*.ipa" -o -name "*.msix" \) -exec cp -v {} installers/ \;
           ls -la installers/
 
       - name: Commit and push installers to main branch
         run: |
+          VERSION=$(grep '^version: ' pubspec.yaml | sed 's/version: //' | tr -d '[:space:]')
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git pull --rebase origin main || true
@@ -271,6 +365,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes in installers directory."
           else
-            git commit -m "build: update installer binaries for platform '${{ github.event.inputs.platform }}' [skip ci]"
+            git commit -m "build: update installer binaries for platform '${{ github.event.inputs.platform }}' (v${VERSION}) [skip ci]"
             git push origin main
           fi
