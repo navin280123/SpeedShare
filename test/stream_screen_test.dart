@@ -23,13 +23,13 @@ void main() {
 
     // Verify Tab Switcher options
     expect(find.text('Connect & Play'), findsOneWidget);
-    expect(find.text('Stream / Host'), findsOneWidget);
+    expect(find.text('Host Media'), findsOneWidget);
 
     // Default mode is Connect & Play -> Nearby Stream Hosts card visible
     expect(find.text('Nearby Stream Hosts'), findsOneWidget);
 
-    // Switch to Stream / Host tab
-    await tester.tap(find.text('Stream / Host'));
+    // Switch to Host Media tab
+    await tester.tap(find.text('Host Media'));
     await tester.pump(const Duration(milliseconds: 300));
 
     // Verify Host Server status card and Add buttons

@@ -312,6 +312,23 @@ class WebPortalHtml {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>
   ''';
 
+  static const String _iconFilm = '''
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/></svg>
+  ''';
+
+  static const String _iconMusic = '''
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+  ''';
+
+  static const String _iconInfo = '''
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+  ''';
+
+  static const String _iconSearch = '''
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+  ''';
+
+
   // ==========================================
   // 1. FILE SENDER WEB PORTAL (Web Share)
   // ==========================================
@@ -831,58 +848,69 @@ class WebPortalHtml {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SpeedShare · Stream Player</title>
+  <title>SpeedShare · Cinema Stream</title>
   <style>
     $_baseCss
-    .player-container {
-      background: #000;
-      border-radius: var(--border-radius);
-      overflow: hidden;
-      margin-bottom: 24px;
-      border: 1px solid var(--card-border);
-      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+    :root {
+      --netflix-red: #E50914;
+      --netflix-red-hover: #f40612;
+      --netflix-dark: #141414;
+      --netflix-card-bg: #181818;
+      --netflix-gray: #808080;
+      --netflix-light: #e5e5e5;
+      --netflix-green: #46d369;
     }
-    video, audio {
+
+    body {
+      background-color: #111217;
+      background-image: radial-gradient(circle at 50% 0%, rgba(229, 9, 20, 0.12) 0%, transparent 60%),
+                        radial-gradient(circle at 90% 90%, rgba(78, 106, 243, 0.08) 0%, transparent 50%);
+    }
+
+    main {
+      max-width: 1320px;
       width: 100%;
-      outline: none;
-      display: block;
+      margin: 0 auto;
+      padding: 16px 20px 60px 20px;
     }
-    .video-view {
-      max-height: 480px;
+
+    /* Netflix Hero Theater Section */
+    .hero-container {
+      position: relative;
+      border-radius: 18px;
+      overflow: hidden;
       background: #000;
+      margin-bottom: 30px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7);
     }
-    .now-playing-banner {
-      padding: 16px 20px;
+
+    .cinema-player-box {
+      position: relative;
+      background: #000;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      max-height: 540px;
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      background: rgba(255, 255, 255, 0.03);
-      border-top: 1px solid var(--card-border);
-      flex-wrap: wrap;
+      justify-content: center;
+      overflow: hidden;
     }
-    .player-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
+
+    .video-view {
+      width: 100%;
+      height: 100%;
+      max-height: 540px;
+      object-fit: contain;
+      background: #000;
+      outline: none;
     }
-    .btn-vlc {
-      background: linear-gradient(135deg, #FF7700 0%, #E65100 100%);
-      color: #fff !important;
-      border: none;
-      font-weight: 600;
-      box-shadow: 0 3px 10px rgba(255, 119, 0, 0.35);
-    }
-    .btn-vlc:hover {
-      background: linear-gradient(135deg, #FF8800 0%, #F57C00 100%);
-      transform: translateY(-1px);
-    }
+
     .codec-notice {
       background: rgba(255, 119, 0, 0.12);
       border: 1px solid rgba(255, 119, 0, 0.35);
       border-radius: 12px;
-      padding: 12px 16px;
+      padding: 12px 18px;
       margin: 12px 20px;
       display: none;
       align-items: center;
@@ -890,60 +918,419 @@ class WebPortalHtml {
       gap: 12px;
       font-size: 13px;
     }
-    .media-card {
+
+    .hero-meta-panel {
+      padding: 22px 26px;
+      background: linear-gradient(180deg, rgba(24, 24, 24, 0.96) 0%, rgba(16, 16, 18, 1) 100%);
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .hero-title-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    .hero-title {
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: #fff;
+      line-height: 1.25;
+      word-break: break-word;
+    }
+
+    .netflix-badge-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+      font-size: 13px;
+    }
+
+    .badge-match {
+      color: var(--netflix-green);
+      font-weight: 700;
+      letter-spacing: 0.2px;
+    }
+
+    .badge-chip {
+      background: rgba(255, 255, 255, 0.12);
+      color: #e5e5e5;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      text-transform: uppercase;
+    }
+
+    .badge-red {
+      background: rgba(229, 9, 20, 0.2);
+      border-color: rgba(229, 9, 20, 0.5);
+      color: #ff6b72;
+    }
+
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+
+    .btn-netflix-play {
+      background: #ffffff;
+      color: #000000 !important;
+      font-weight: 700;
+      font-size: 14px;
+      padding: 9px 22px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .btn-netflix-play:hover {
+      background: rgba(255, 255, 255, 0.85);
+      transform: scale(1.03);
+    }
+
+    .btn-netflix-vlc {
+      background: linear-gradient(135deg, #FF7700 0%, #E65100 100%);
+      color: #fff !important;
+      font-weight: 600;
+      font-size: 14px;
+      padding: 9px 18px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 4px 14px rgba(255, 119, 0, 0.35);
+      transition: all 0.2s ease;
+    }
+    .btn-netflix-vlc:hover {
+      background: linear-gradient(135deg, #FF8800 0%, #F57C00 100%);
+      transform: scale(1.03);
+    }
+
+    .btn-netflix-secondary {
+      background: rgba(109, 109, 110, 0.35);
+      color: #ffffff;
+      font-weight: 600;
+      font-size: 13px;
+      padding: 9px 16px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      text-decoration: none;
+      transition: all 0.2s ease;
+    }
+    .btn-netflix-secondary:hover {
+      background: rgba(109, 109, 110, 0.55);
+      border-color: rgba(255, 255, 255, 0.3);
+      transform: translateY(-1px);
+    }
+
+    /* Netflix Filter & Search Toolbar */
+    .netflix-toolbar {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 14px 16px;
-      border-radius: 12px;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+      gap: 16px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
     }
-    .media-card:hover {
-      background: rgba(78, 106, 243, 0.1);
-      transform: translateX(4px);
-    }
-    .media-card.active {
-      background: rgba(78, 106, 243, 0.2);
-      border-left: 3px solid var(--primary);
-    }
-    .media-info {
+
+    .category-tabs {
       display: flex;
       align-items: center;
-      gap: 14px;
-      overflow: hidden;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 4px;
     }
-    .media-icon {
-      width: 36px;
-      height: 36px;
-      border-radius: 8px;
-      background: rgba(78, 106, 243, 0.2);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--primary);
-      flex-shrink: 0;
-    }
-    .media-name {
+
+    .tab-pill {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #b3b3b3;
+      padding: 7px 16px;
+      border-radius: 20px;
+      font-size: 13px;
       font-weight: 600;
-      font-size: 14px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .tab-pill:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.12);
+    }
+    .tab-pill.active {
+      background: #E50914;
+      color: #fff;
+      border-color: #E50914;
+      box-shadow: 0 4px 14px rgba(229, 9, 20, 0.4);
+    }
+
+    .search-box-wrap {
+      position: relative;
+      min-width: 220px;
+      flex: 1;
+      max-width: 320px;
+    }
+    .search-input {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #fff;
+      padding: 8px 14px 8px 36px;
+      border-radius: 20px;
+      font-size: 13px;
+      outline: none;
+      transition: all 0.2s ease;
+    }
+    .search-input:focus {
+      border-color: #E50914;
+      box-shadow: 0 0 12px rgba(229, 9, 20, 0.3);
+      background: rgba(0, 0, 0, 0.7);
+    }
+    .search-icon {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #888;
+      pointer-events: none;
+      display: flex;
+    }
+
+    /* Netflix Shelves & Card Grid */
+    .shelf-section {
+      margin-bottom: 34px;
+    }
+
+    .shelf-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .shelf-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .shelf-count {
+      font-size: 12px;
+      color: #808080;
+      font-weight: normal;
+    }
+
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+      gap: 20px;
+    }
+
+    @media (max-width: 768px) {
+      .cards-grid {
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 14px;
+      }
+      .cinema-player-box {
+        aspect-ratio: auto;
+        height: 240px;
+      }
+      .hero-title {
+        font-size: 18px;
+      }
+    }
+
+    .movie-card {
+      position: relative;
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--netflix-card-bg);
+      aspect-ratio: 16 / 9;
+      cursor: pointer;
+      transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.25s ease, border-color 0.25s ease;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+    }
+
+    .movie-card:hover {
+      transform: scale(1.05) translateY(-4px);
+      z-index: 10;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.85), 0 0 20px rgba(229, 9, 20, 0.25);
+      border-color: rgba(229, 9, 20, 0.5);
+    }
+
+    .movie-card.active-playing {
+      border: 2px solid #E50914;
+      box-shadow: 0 0 24px rgba(229, 9, 20, 0.4);
+    }
+
+    .card-poster {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-size: cover;
+      background-position: center;
+      transition: transform 0.4s ease;
+    }
+    .movie-card:hover .card-poster {
+      transform: scale(1.08);
+    }
+
+    .card-overlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: linear-gradient(180deg, rgba(0, 0, 0, 0.1) 0%, rgba(0, 0, 0, 0.4) 40%, rgba(10, 10, 10, 0.95) 100%);
+      pointer-events: none;
+    }
+
+    .card-watermark {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      opacity: 0.18;
+      pointer-events: none;
+      display: flex;
+    }
+
+    .card-top-badges {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 2;
+    }
+
+    .card-content {
+      position: relative;
+      z-index: 2;
+      padding: 12px 14px;
+    }
+
+    .card-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      margin-bottom: 4px;
+      text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
     }
-    .media-meta {
-      font-size: 12px;
-      color: var(--text-muted);
+
+    .card-meta-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #a3a3a3;
+    }
+
+    /* Hover Quick Actions on Card */
+    .card-hover-actions {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .movie-card:hover .card-hover-actions {
+      display: flex;
+    }
+
+    .btn-icon-circle {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      background: rgba(30, 30, 30, 0.85);
+      color: #fff;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      backdrop-filter: blur(4px);
+    }
+    .btn-icon-circle:hover {
+      transform: scale(1.15);
+      border-color: #fff;
+      background: #fff;
+      color: #000;
+    }
+    .btn-icon-circle.vlc:hover {
+      background: #FF8800;
+      border-color: #FF8800;
+      color: #fff;
+    }
+
+    /* Now Playing Equalizer Animation */
+    .now-playing-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #E50914;
+      color: #fff;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      box-shadow: 0 2px 6px rgba(229, 9, 20, 0.5);
+    }
+    .equalizer-bar {
+      width: 2px;
+      height: 8px;
+      background: #fff;
+      border-radius: 1px;
+      animation: eqBounce 0.8s ease-in-out infinite alternate;
+    }
+    .equalizer-bar:nth-child(2) { animation-delay: 0.2s; height: 12px; }
+    .equalizer-bar:nth-child(3) { animation-delay: 0.4s; height: 6px; }
+    @keyframes eqBounce {
+      from { height: 3px; }
+      to { height: 12px; }
     }
 
     /* External Player Modal */
     .modal-backdrop {
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0, 0, 0, 0.8);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
       z-index: 10000;
       display: none;
       align-items: center;
@@ -951,12 +1338,12 @@ class WebPortalHtml {
       padding: 16px;
     }
     .modal-card {
-      background: #141724;
-      border: 1px solid var(--card-border);
+      background: #161821;
+      border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 18px;
-      max-width: 500px;
+      max-width: 520px;
       width: 100%;
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.85);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.9);
       overflow: hidden;
       animation: modalPop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     }
@@ -969,7 +1356,7 @@ class WebPortalHtml {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      border-bottom: 1px solid var(--card-border);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
       background: rgba(255, 255, 255, 0.02);
     }
     .modal-body {
@@ -979,14 +1366,14 @@ class WebPortalHtml {
     }
     .modal-option {
       background: rgba(255, 255, 255, 0.03);
-      border: 1px solid var(--card-border);
+      border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 14px;
       padding: 14px;
       margin-bottom: 12px;
       transition: all 0.2s;
     }
     .modal-option:hover {
-      border-color: rgba(255, 255, 255, 0.15);
+      border-color: rgba(255, 255, 255, 0.18);
       background: rgba(255, 255, 255, 0.05);
     }
   </style>
@@ -1011,39 +1398,60 @@ class WebPortalHtml {
     $_appDownloadBannerHtml
     $pinSectionHtml
     <div id="stream-section" style="$pinDisplay">
-      <div class="player-container">
-        <video id="player-video" class="video-view" controls playsinline></video>
+
+      <!-- Netflix Hero / Featured Showcase -->
+      <div id="hero-container" class="hero-container">
+        <div class="cinema-player-box">
+          <video id="player-video" class="video-view" controls playsinline></video>
+        </div>
 
         <!-- Browser Codec Warning Bar (shown if browser cannot decode video format) -->
         <div id="codec-alert" class="codec-notice">
           <div style="display: flex; align-items: center; gap: 8px;">
             $_iconVlc
-            <span>Browser cannot decode this video format natively (e.g. MKV/AC3).</span>
+            <span>Browser cannot decode this format natively (e.g. MKV/AC3/HEVC).</span>
           </div>
-          <button onclick="openCurrentInExternalModal()" class="btn btn-sm btn-vlc">
+          <button onclick="openCurrentInExternalModal()" class="btn-netflix-vlc" style="padding: 6px 14px; font-size: 12px;">
             Play in VLC
           </button>
         </div>
 
-        <div class="now-playing-banner">
-          <div style="flex: 1; min-width: 0;">
-            <div id="current-title" style="font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Select a track to play</div>
-            <div id="current-meta" style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">Direct stream from host</div>
+        <div class="hero-meta-panel">
+          <div class="hero-title-row">
+            <div>
+              <div id="hero-title" class="hero-title">Select a title to play</div>
+              <div class="netflix-badge-row">
+                <span id="hero-badge-match" class="badge-match">98% Match</span>
+                <span id="hero-badge-quality" class="badge-chip">HD</span>
+                <span id="hero-badge-format" class="badge-chip badge-red">MEDIA</span>
+                <span id="hero-badge-size" class="badge-chip">--</span>
+                <span id="hero-badge-audio" class="badge-chip">Stereo</span>
+              </div>
+            </div>
           </div>
-          <div class="player-actions">
-            <button id="btn-play-vlc" class="btn btn-sm btn-vlc" onclick="openCurrentInExternalModal()" style="display: none;" title="Play in VLC Media Player / External Player">
+
+          <div class="hero-actions">
+            <button id="btn-hero-play" class="btn-netflix-play" onclick="playHeroMedia()">
+              $_iconPlay
+              <span id="hero-play-text">Play</span>
+            </button>
+            <button id="btn-play-vlc" class="btn-netflix-vlc" onclick="openCurrentInExternalModal()" style="display: none;" title="Play in VLC Media Player / External Player">
               $_iconVlc
               <span>Play in VLC</span>
             </button>
-            <button id="btn-copy-url" class="btn btn-sm btn-outline" onclick="copyCurrentStreamUrl()" style="display: none;" title="Copy direct stream URL for media players">
+            <button id="btn-hero-info" class="btn-netflix-secondary" onclick="openCurrentInExternalModal()" style="display: none;" title="View Details and External Links">
+              $_iconInfo
+              <span>Details</span>
+            </button>
+            <button id="btn-copy-url" class="btn-netflix-secondary" onclick="copyCurrentStreamUrl()" style="display: none;" title="Copy direct stream URL for media players">
               $_iconCopy
               <span id="copy-btn-text">Copy URL</span>
             </button>
-            <a id="current-m3u" href="#" class="btn btn-sm btn-outline" download style="display: none;" title="Download .m3u playlist file (opens directly in VLC, PotPlayer, IINA)">
+            <a id="current-m3u" href="#" class="btn-netflix-secondary" download style="display: none;" title="Download .m3u playlist file">
               $_iconPlaylist
               <span>M3U</span>
             </a>
-            <a id="current-download" href="#" class="btn btn-sm btn-outline" download style="display: none;" title="Save media file directly">
+            <a id="current-download" href="#" class="btn-netflix-secondary" download style="display: none;" title="Save media file directly">
               $_iconDownload
               <span>Save</span>
             </a>
@@ -1051,18 +1459,39 @@ class WebPortalHtml {
         </div>
       </div>
 
-      <div class="card">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
-          <h3 style="font-size: 16px;">Media Catalog</h3>
-          <a id="all-playlist-btn" href="/api/stream/playlist.m3u" class="btn btn-sm btn-outline" download="speedshare_playlist.m3u" style="color: #FF8800; border-color: rgba(255, 136, 0, 0.4);" title="Download full .m3u playlist for VLC">
+      <!-- Netflix Toolbar: Category Pills, Search, Full Playlist -->
+      <div class="netflix-toolbar">
+        <div class="category-tabs">
+          <button id="tab-all" class="tab-pill active" onclick="filterCategory('all')">
+            All Titles (<span id="count-all">0</span>)
+          </button>
+          <button id="tab-video" class="tab-pill" onclick="filterCategory('video')">
+            $_iconFilm
+            <span>Movies & Videos</span> (<span id="count-video">0</span>)
+          </button>
+          <button id="tab-audio" class="tab-pill" onclick="filterCategory('audio')">
+            $_iconMusic
+            <span>Music & Audio</span> (<span id="count-audio">0</span>)
+          </button>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <div class="search-box-wrap">
+            <span class="search-icon">$_iconSearch</span>
+            <input type="text" id="search-input" class="search-input" placeholder="Search movies, audio..." oninput="onSearchChange(this.value)">
+          </div>
+          <a id="all-playlist-btn" href="/api/stream/playlist.m3u" class="btn-netflix-secondary" download="speedshare_playlist.m3u" style="border-color: rgba(255, 136, 0, 0.4); color: #FF8800;" title="Download full .m3u playlist for VLC">
             $_iconVlc
             <span>VLC Playlist (.m3u)</span>
           </a>
         </div>
-        <div id="catalog-list">
-          <div style="text-align: center; padding: 30px; color: var(--text-muted);">Loading playlist...</div>
-        </div>
       </div>
+
+      <!-- Netflix Shelves Container -->
+      <div id="netflix-shelves">
+        <div style="text-align: center; padding: 40px; color: var(--text-muted);">Loading catalog...</div>
+      </div>
+
     </div>
   </main>
 
@@ -1093,11 +1522,11 @@ class WebPortalHtml {
             Opens the stream in VLC on Android, iOS, Windows, and macOS.
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button onclick="launchVlcProtocol()" class="btn btn-sm btn-vlc">
+            <button onclick="launchVlcProtocol()" class="btn-netflix-vlc" style="font-size: 13px; padding: 8px 16px;">
               $_iconVlc
               <span>Open in VLC</span>
             </button>
-            <button id="modal-android-btn" onclick="launchAndroidPlayerIntent()" class="btn btn-sm btn-outline" style="display: none;">
+            <button id="modal-android-btn" onclick="launchAndroidPlayerIntent()" class="btn-netflix-secondary" style="display: none; font-size: 13px; padding: 8px 16px;">
               $_iconExternal
               <span>Android Player Chooser</span>
             </button>
@@ -1112,7 +1541,7 @@ class WebPortalHtml {
           <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px;">
             Double-clicking this file automatically opens VLC, IINA, PotPlayer, or Windows Media Player.
           </div>
-          <a id="modal-m3u-link" href="#" class="btn btn-sm btn-outline" download style="display: inline-flex; align-items: center; gap: 6px;">
+          <a id="modal-m3u-link" href="#" class="btn-netflix-secondary" download style="display: inline-flex; align-items: center; gap: 6px;">
             $_iconPlaylist
             <span>Download .m3u Stream File</span>
           </a>
@@ -1128,7 +1557,7 @@ class WebPortalHtml {
           </div>
           <div style="display: flex; gap: 8px; margin-bottom: 10px;">
             <input id="modal-url-input" type="text" readonly style="flex: 1; background: rgba(0,0,0,0.5); border: 1px solid var(--card-border); border-radius: 8px; padding: 8px 10px; font-size: 12px; color: var(--text); outline: none;">
-            <button id="modal-copy-btn" onclick="copyModalUrl()" class="btn btn-sm btn-accent" style="white-space: nowrap;">
+            <button id="modal-copy-btn" onclick="copyModalUrl()" class="btn-netflix-play" style="white-space: nowrap; padding: 6px 14px; font-size: 12px;">
               $_iconCopy
               <span id="modal-copy-text">Copy</span>
             </button>
@@ -1160,7 +1589,23 @@ class WebPortalHtml {
     let playlist = [];
     let activeIndex = -1;
     let modalItem = null;
+    let currentFilter = "all";
+    let searchQuery = "";
+    const thumbCache = {};
     const requiredPin = "${accessCode ?? ''}";
+
+    const POSTER_GRADIENTS = [
+      "linear-gradient(135deg, #2b1055, #7597de)",
+      "linear-gradient(135deg, #141e30, #243b55)",
+      "linear-gradient(135deg, #1f0442, #471069)",
+      "linear-gradient(135deg, #0f2027, #203a43, #2c5364)",
+      "linear-gradient(135deg, #232526, #414345)",
+      "linear-gradient(135deg, #16222A, #3A6073)",
+      "linear-gradient(135deg, #191919, #331111)",
+      "linear-gradient(135deg, #0d1b2a, #1b263b, #415a77)",
+      "linear-gradient(135deg, #112d32, #254e58, #4f4a41)",
+      "linear-gradient(135deg, #200122, #6f0000)"
+    ];
 
     function getPin() {
       return sessionStorage.getItem("speedshare_stream_pin") || requiredPin;
@@ -1172,6 +1617,36 @@ class WebPortalHtml {
       const sizes = ["B", "KB", "MB", "GB", "TB"];
       const i = Math.floor(Math.log(bytes) / Math.log(k));
       return (bytes / Math.pow(k, i)).toFixed(1) + " " + sizes[i];
+    }
+
+    function cleanTitle(name) {
+      return name.replace(/\\.[a-zA-Z0-9]{2,5}\$/, "");
+    }
+
+    function getPosterGradient(str) {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) & 0xffffffff;
+      return POSTER_GRADIENTS[Math.abs(hash) % POSTER_GRADIENTS.length];
+    }
+
+    function getMatchPercentage(str) {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) hash = (hash * 17 + str.charCodeAt(i)) & 0xffffffff;
+      return 94 + (Math.abs(hash) % 6);
+    }
+
+    function detectQualityBadge(name) {
+      const lower = name.toLowerCase();
+      if (lower.includes("4k") || lower.includes("2160p") || lower.includes("uhd")) return "4K UHD";
+      if (lower.includes("1080p") || lower.includes("fhd")) return "1080p HD";
+      if (lower.includes("720p")) return "720p HD";
+      return "HD";
+    }
+
+    function getFormatBadge(item) {
+      if (item.extension) return item.extension.toUpperCase().replace(".", "");
+      const match = item.name.match(/\\.([a-zA-Z0-9]{2,5})\$/);
+      return match ? match[1].toUpperCase() : (item.type === "audio" ? "AUDIO" : "VIDEO");
     }
 
     function getFullStreamUrl(item) {
@@ -1210,6 +1685,7 @@ class WebPortalHtml {
         }
         const data = await resp.json();
         playlist = data.items || [];
+        updateCounts();
         renderCatalog();
 
         const allPlaylistBtn = document.getElementById("all-playlist-btn");
@@ -1218,7 +1694,7 @@ class WebPortalHtml {
         }
 
         if (playlist.length > 0) {
-          playMedia(0, false);
+          selectMedia(0, false);
         }
         if (callback) callback(true);
       } catch (e) {
@@ -1226,35 +1702,188 @@ class WebPortalHtml {
       }
     }
 
-    function renderCatalog() {
-      const list = document.getElementById("catalog-list");
-      if (!playlist.length) {
-        list.innerHTML = '<div style="text-align:center; padding: 20px; color: var(--text-muted);">No media items shared</div>';
-        return;
-      }
-      list.innerHTML = playlist.map((item, idx) => `
-        <div class="media-card \${idx === activeIndex ? "active" : ""}" onclick="playMedia(\${idx}, true)">
-          <div class="media-info">
-            <div class="media-icon">$_iconPlay</div>
-            <div style="overflow: hidden;">
-              <div class="media-name" title="\${item.name}">\${item.name}</div>
-              <div class="media-meta">\${item.type || "Media"} · \${formatBytes(item.size)}</div>
-            </div>
-          </div>
-          <div style="display: flex; gap: 6px; align-items: center;" onclick="event.stopPropagation()">
-            <button class="btn btn-sm btn-outline" onclick="openItemInExternalModal(\${idx})" title="Play in VLC / External Player" style="border-color: rgba(255, 136, 0, 0.4); color: #FF8800; padding: 6px 10px;">
-              $_iconVlc
-              <span style="margin-left: 4px; font-size: 12px;">VLC</span>
-            </button>
-            <button class="btn btn-sm btn-outline" onclick="playMedia(\${idx}, true)" title="Play in Browser">
-              $_iconPlay
-            </button>
-          </div>
-        </div>
-      `).join("");
+    function updateCounts() {
+      const videoCount = playlist.filter(m => m.type === "video").length;
+      const audioCount = playlist.filter(m => m.type === "audio").length;
+      document.getElementById("count-all").innerText = playlist.length;
+      document.getElementById("count-video").innerText = videoCount;
+      document.getElementById("count-audio").innerText = audioCount;
     }
 
-    function playMedia(index, autoPlay) {
+    function filterCategory(cat) {
+      currentFilter = cat;
+      document.getElementById("tab-all").classList.toggle("active", cat === "all");
+      document.getElementById("tab-video").classList.toggle("active", cat === "video");
+      document.getElementById("tab-audio").classList.toggle("active", cat === "audio");
+      renderCatalog();
+    }
+
+    function onSearchChange(val) {
+      searchQuery = val.trim().toLowerCase();
+      renderCatalog();
+    }
+
+    function renderCatalog() {
+      const container = document.getElementById("netflix-shelves");
+      if (!playlist.length) {
+        container.innerHTML = '<div style="text-align:center; padding: 40px; color: var(--text-muted);">No media titles shared</div>';
+        return;
+      }
+
+      let items = playlist.map((item, originalIndex) => ({ ...item, originalIndex }));
+
+      if (currentFilter !== "all") {
+        items = items.filter(m => m.type === currentFilter);
+      }
+
+      if (searchQuery) {
+        items = items.filter(m => m.name.toLowerCase().includes(searchQuery) || (m.type || "").toLowerCase().includes(searchQuery));
+      }
+
+      if (!items.length) {
+        container.innerHTML = '<div style="text-align:center; padding: 40px; color: var(--text-muted);">No titles match "' + searchQuery + '"</div>';
+        return;
+      }
+
+      const videoItems = items.filter(m => m.type === "video");
+      const audioItems = items.filter(m => m.type === "audio");
+
+      let html = "";
+
+      if (currentFilter === "all" && !searchQuery && videoItems.length && audioItems.length) {
+        html += renderShelf("🎬 Movies & Video Features", videoItems);
+        html += renderShelf("🎵 Music & Audio Tracks", audioItems);
+      } else {
+        const shelfTitle = currentFilter === "video" ? "🎬 Movies & Videos" : (currentFilter === "audio" ? "🎵 Audio & Music" : "🍿 All Titles");
+        html += renderShelf(shelfTitle, items);
+      }
+
+      container.innerHTML = html;
+
+      // Asynchronously capture real video frame thumbnails for cards
+      items.forEach(item => {
+        if (item.type === "video") {
+          fetchThumbnailForCard(item);
+        }
+      });
+    }
+
+    function renderShelf(title, shelfItems) {
+      return `
+        <div class="shelf-section">
+          <div class="shelf-header">
+            <div class="shelf-title">
+              <span>\${title}</span>
+              <span class="shelf-count">(\${shelfItems.length})</span>
+            </div>
+          </div>
+          <div class="cards-grid">
+            \${shelfItems.map(item => renderCard(item)).join("")}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderCard(item) {
+      const idx = item.originalIndex;
+      const isPlaying = (idx === activeIndex);
+      const gradient = getPosterGradient(item.name);
+      const matchPct = getMatchPercentage(item.name);
+      const formatBadge = getFormatBadge(item);
+      const qualityBadge = item.type === "video" ? detectQualityBadge(item.name) : "AUDIO";
+      const cleanName = cleanTitle(item.name);
+      const cachedThumb = thumbCache[item.id];
+      const posterBg = cachedThumb ? "background-image: url('" + cachedThumb + "');" : "background: " + gradient + ";";
+
+      return `
+        <div class="movie-card \${isPlaying ? "active-playing" : ""}" onclick="playMedia(\${idx}, true)" title="\${item.name}">
+          <div id="poster-\${item.id}" class="card-poster" style="\${posterBg}"></div>
+          <div class="card-overlay"></div>
+
+          <div class="card-watermark">
+            \${item.type === "audio" ? `$_iconMusic` : `$_iconFilm`}
+          </div>
+
+          <div class="card-top-badges">
+            <span class="badge-chip \${isPlaying ? "" : "badge-red"}">\${formatBadge}</span>
+            \${isPlaying ? `
+              <span class="now-playing-pill">
+                <span class="equalizer-bar"></span>
+                <span class="equalizer-bar"></span>
+                <span class="equalizer-bar"></span>
+                <span>PLAYING</span>
+              </span>
+            ` : `
+              <span class="badge-chip" style="font-size: 10px;">\${qualityBadge}</span>
+            `}
+          </div>
+
+          <div class="card-content">
+            <div class="card-title">\${cleanName}</div>
+            <div class="card-meta-row">
+              <span style="color: var(--netflix-green); font-weight: 600;">\${matchPct}% Match</span>
+              <span>\${formatBytes(item.size)}</span>
+            </div>
+
+            <!-- Netflix Quick Action Buttons on Hover -->
+            <div class="card-hover-actions" onclick="event.stopPropagation()">
+              <button class="btn-icon-circle" onclick="playMedia(\${idx}, true)" title="Play Movie">
+                $_iconPlay
+              </button>
+              <button class="btn-icon-circle vlc" onclick="openItemInExternalModal(\${idx})" title="Play in VLC">
+                $_iconVlc
+              </button>
+              <button class="btn-icon-circle" onclick="openItemInExternalModal(\${idx})" title="Details & Info">
+                $_iconInfo
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function fetchThumbnailForCard(item) {
+      if (thumbCache[item.id]) return;
+      const el = document.getElementById("poster-" + item.id);
+      if (!el) return;
+
+      const video = document.createElement("video");
+      video.crossOrigin = "anonymous";
+      video.src = getFullStreamUrl(item) + "#t=3";
+      video.muted = true;
+      video.preload = "metadata";
+
+      const capture = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = 320;
+          canvas.height = 180;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+          thumbCache[item.id] = dataUrl;
+          if (el) el.style.backgroundImage = "url('" + dataUrl + "')";
+        } catch (e) {}
+        cleanup();
+      };
+
+      const cleanup = () => {
+        video.removeEventListener("seeked", capture);
+        video.removeEventListener("loadeddata", onLoaded);
+        video.removeEventListener("error", cleanup);
+        video.src = "";
+      };
+
+      const onLoaded = () => {
+        video.currentTime = Math.min(3, (video.duration || 10) / 2);
+      };
+
+      video.addEventListener("loadeddata", onLoaded);
+      video.addEventListener("seeked", capture);
+      video.addEventListener("error", cleanup);
+    }
+
+    function selectMedia(index, autoPlay) {
       if (index < 0 || index >= playlist.length) return;
       activeIndex = index;
       const item = playlist[index];
@@ -1268,10 +1897,18 @@ class WebPortalHtml {
         player.play().catch(() => {});
       }
 
-      document.getElementById("current-title").innerText = item.name;
-      document.getElementById("current-meta").innerText = (item.type || "Media") + " · " + formatBytes(item.size);
+      // Update Hero meta
+      const cleanName = cleanTitle(item.name);
+      document.getElementById("hero-title").innerText = cleanName;
+      document.getElementById("hero-badge-match").innerText = getMatchPercentage(item.name) + "% Match";
+      document.getElementById("hero-badge-quality").innerText = (item.type === "video") ? detectQualityBadge(item.name) : "LOSSLESS";
+      document.getElementById("hero-badge-format").innerText = getFormatBadge(item);
+      document.getElementById("hero-badge-size").innerText = formatBytes(item.size);
+      document.getElementById("hero-badge-audio").innerText = (item.type === "audio") ? "Hi-Res Audio" : "Dolby 5.1 / Stereo";
 
+      // Show Action Buttons
       document.getElementById("btn-play-vlc").style.display = "inline-flex";
+      document.getElementById("btn-hero-info").style.display = "inline-flex";
       document.getElementById("btn-copy-url").style.display = "inline-flex";
 
       const m3uBtn = document.getElementById("current-m3u");
@@ -1286,13 +1923,56 @@ class WebPortalHtml {
       renderCatalog();
     }
 
-    document.getElementById("player-video").addEventListener("error", () => {
+    function playMedia(index, autoPlay) {
+      selectMedia(index, autoPlay);
+      const hero = document.getElementById("hero-container");
+      if (hero) {
+        hero.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+
+    function playHeroMedia() {
+      const player = document.getElementById("player-video");
+      if (player.paused) {
+        player.play().catch(() => {});
+        document.getElementById("hero-play-text").innerText = "Pause";
+      } else {
+        player.pause();
+        document.getElementById("hero-play-text").innerText = "Play";
+      }
+    }
+
+    const playerEl = document.getElementById("player-video");
+    playerEl.addEventListener("play", () => {
+      document.getElementById("hero-play-text").innerText = "Pause";
+    });
+    playerEl.addEventListener("pause", () => {
+      document.getElementById("hero-play-text").innerText = "Play";
+    });
+    playerEl.addEventListener("error", () => {
       document.getElementById("codec-alert").style.display = "flex";
     });
-
-    document.getElementById("player-video").addEventListener("ended", () => {
+    playerEl.addEventListener("ended", () => {
       if (activeIndex + 1 < playlist.length) {
         playMedia(activeIndex + 1, true);
+      }
+    });
+
+    // Keyboard Shortcuts (Space for Play/Pause, F for Fullscreen, M for Mute)
+    window.addEventListener("keydown", (e) => {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+      if (e.code === "Space") {
+        e.preventDefault();
+        playHeroMedia();
+      } else if (e.code === "KeyF") {
+        e.preventDefault();
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {});
+        } else {
+          playerEl.requestFullscreen().catch(() => {});
+        }
+      } else if (e.code === "KeyM") {
+        playerEl.muted = !playerEl.muted;
       }
     });
 
