@@ -677,6 +677,18 @@ class StreamScreenState extends State<StreamScreen>
       _showSnackBar(
         'Live Media Stream started on port $_serverPort! PIN: $_accessCode',
       );
+
+      if (mounted) {
+        final url = 'http://${_hostIp ?? '192.168.x.x'}:$_serverPort';
+        DeviceAccessGuideModal.show(
+          context,
+          url: url,
+          pin: _accessCode,
+          title: 'Live Media Stream Web Player',
+          subtitle: 'Scan QR code with phone camera or open URL in any browser',
+          icon: Icons.play_circle_filled_rounded,
+        );
+      }
     } catch (e) {
       // Fallback to random port if 8084 occupied
       try {
@@ -697,6 +709,18 @@ class StreamScreenState extends State<StreamScreen>
           buttons: [BackgroundService.stopStreamButton],
         );
         _showSnackBar('Stream started on port $_serverPort! PIN: $_accessCode');
+
+        if (mounted) {
+          final url = 'http://${_hostIp ?? '192.168.x.x'}:$_serverPort';
+          DeviceAccessGuideModal.show(
+            context,
+            url: url,
+            pin: _accessCode,
+            title: 'Live Media Stream Web Player',
+            subtitle: 'Scan QR code with phone camera or open URL in any browser',
+            icon: Icons.play_circle_filled_rounded,
+          );
+        }
       } catch (err) {
         _showSnackBar('Failed to start stream server: $err', isError: true);
       }
@@ -2447,10 +2471,13 @@ class StreamScreenState extends State<StreamScreen>
                                   icon: Icons.play_circle_filled_rounded,
                                 );
                               },
-                              icon: const Icon(Icons.devices_rounded, size: 14),
+                              icon: const Icon(Icons.qr_code_rounded, size: 15),
                               label: const Text(
-                                'How to open on iOS / Android / PC',
-                                style: TextStyle(fontSize: 11),
+                                'Show QR Code & Access Guide',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: const Color(0xFF2AB673),

@@ -688,6 +688,7 @@ class WebPortalHtml {
   <script>
     let currentPath = '';
     let loadedItems = [];
+    let pathHistory = [{ name: 'Root', path: '' }];
     const expectedPin = "${accessCode ?? ''}";
 
     function getActivePin() {
@@ -700,6 +701,16 @@ class WebPortalHtml {
       const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
       const i = Math.floor(Math.log(bytes) / Math.log(k));
       return (bytes / Math.pow(k, i)).toFixed(1) + ' ' + sizes[i];
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     }
 
     function unlockStorage() {
@@ -718,74 +729,130 @@ class WebPortalHtml {
     async function loadFolder(path, callback) {
       const pin = getActivePin();
       const url = '/api/files?path=' + encodeURIComponent(path) + (pin ? '&code=' + encodeURIComponent(pin) : '');
+      const body = document.getElementById('explorer-body');
+      body.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">Loading folder contents...</div>';
+
       try {
         const resp = await fetch(url);
         if (!resp.ok) {
+          let errMsg = 'Access denied or folder unavailable (Status ' + resp.status + ')';
+          try {
+            const text = await resp.text();
+            if (text && text.trim().length > 0 && text.length < 150) errMsg = text;
+          } catch (_) {}
+          body.innerHTML = '<div style="color: #ff5252; text-align: center; padding: 30px;">' +
+            '<strong>' + escapeHtml(errMsg) + '</strong><br>' +
+            (pathHistory.length > 1 ? '<button class="btn btn-sm btn-outline" style="margin-top: 14px;" onclick="navigateUp()">&larr; Go Back</button>' : '') +
+            '</div>';
           if (callback) callback(false);
           return;
         }
+
         const data = await resp.json();
         currentPath = path;
-        loadedItems = data;
-        renderItems(data);
-        renderBreadcrumbs(path);
+        loadedItems = Array.isArray(data) ? data : [];
+        renderItems(loadedItems);
+        renderBreadcrumbs();
         if (callback) callback(true);
       } catch (err) {
-        document.getElementById('explorer-body').innerHTML = '<div style="color:#ff5252; text-align:center; padding:30px;">Error loading folder: ' + err.message + '</div>';
+        body.innerHTML = '<div style="color: #ff5252; text-align: center; padding: 30px;">' +
+          'Error loading folder: ' + escapeHtml(err.message) + '<br>' +
+          (pathHistory.length > 1 ? '<button class="btn btn-sm btn-outline" style="margin-top: 14px;" onclick="navigateUp()">&larr; Go Back</button>' : '') +
+          '</div>';
         if (callback) callback(false);
       }
     }
 
-    function renderBreadcrumbs(path) {
+    function renderBreadcrumbs() {
       const container = document.getElementById('breadcrumbs');
-      if (!path) {
-        container.innerHTML = '<span class="breadcrumb-item" onclick="navigateTo(\\'\\')">Root</span>';
-        return;
-      }
-      const parts = path.split('/').filter(Boolean);
-      let html = '<span class="breadcrumb-item" onclick="navigateTo(\\'\\')">Root</span>';
-      let accum = '';
-      parts.forEach((p, idx) => {
-        accum += '/' + p;
-        const thisPath = accum;
-        if (idx === parts.length - 1) {
-          html += ' / <span>' + p + '</span>';
+      if (!container) return;
+      container.innerHTML = pathHistory.map((entry, idx) => {
+        if (idx === pathHistory.length - 1) {
+          return '<span style="color: var(--text); font-weight: 600;">' + escapeHtml(entry.name) + '</span>';
         } else {
-          html += ' / <span class="breadcrumb-item" onclick="navigateTo(\\'' + thisPath + '\\')">' + p + '</span>';
+          return '<span class="breadcrumb-item" onclick="navigateToBreadcrumb(' + idx + ')">' + escapeHtml(entry.name) + '</span>';
         }
-      });
-      container.innerHTML = html;
+      }).join(' <span style="opacity: 0.4;">/</span> ');
+    }
+
+    function navigateToBreadcrumb(idx) {
+      if (idx < 0 || idx >= pathHistory.length) return;
+      pathHistory = pathHistory.slice(0, idx + 1);
+      const target = pathHistory[idx];
+      const searchBox = document.getElementById('search-box');
+      if (searchBox) searchBox.value = '';
+      loadFolder(target.path);
+    }
+
+    function navigateUp() {
+      if (pathHistory.length > 1) {
+        navigateToBreadcrumb(pathHistory.length - 2);
+      }
+    }
+
+    function navigateToIndex(origIdx) {
+      if (origIdx < 0 || origIdx >= loadedItems.length) return;
+      const item = loadedItems[origIdx];
+      if (!item || !item.isDirectory) return;
+      pathHistory.push({ name: item.name, path: item.path });
+      const searchBox = document.getElementById('search-box');
+      if (searchBox) searchBox.value = '';
+      loadFolder(item.path);
     }
 
     function renderItems(items) {
       const container = document.getElementById('explorer-body');
-      if (!items.length) {
-        container.innerHTML = '<div style="text-align:center; padding: 40px; color: var(--text-muted);">Empty folder</div>';
-        return;
-      }
       const pin = getActivePin();
       const pinParam = pin ? '&code=' + encodeURIComponent(pin) : '';
 
-      container.innerHTML = items.map(item => {
+      let html = '';
+
+      // If inside a subfolder, show an Up / Go Back row
+      if (pathHistory.length > 1) {
+        const parentName = pathHistory[pathHistory.length - 2].name;
+        html += `
+          <div class="explorer-row" onclick="navigateUp()" style="opacity: 0.85; border-bottom: 1px dashed rgba(255, 255, 255, 0.1);">
+            <div class="explorer-row-left">
+              <span style="font-size: 16px; margin-right: 4px;">&larr;</span>
+              <span class="explorer-name" style="font-style: italic;">.. (Back to \${escapeHtml(parentName)})</span>
+            </div>
+            <span style="font-size: 12px; color: var(--text-muted);">Up &uarr;</span>
+          </div>
+        `;
+      }
+
+      if (!items || !items.length) {
+        const emptyMsg = (pathHistory.length === 1)
+          ? 'No shared storage folders configured on host'
+          : 'Empty folder';
+        html += '<div style="text-align:center; padding: 40px; color: var(--text-muted);">' + emptyMsg + '</div>';
+        container.innerHTML = html;
+        return;
+      }
+
+      html += items.map(item => {
+        const origIdx = loadedItems.indexOf(item);
+        const safeName = escapeHtml(item.name);
         if (item.isDirectory) {
           return `
-            <div class="explorer-row" onclick="navigateTo('\${item.path}')">
+            <div class="explorer-row" onclick="navigateToIndex(\${origIdx})">
               <div class="explorer-row-left">
                 $_iconFolder
-                <span class="explorer-name">\${item.name}</span>
+                <span class="explorer-name" title="\${safeName}">\${safeName}</span>
               </div>
               <span style="font-size: 12px; color: var(--text-muted);">Folder &rarr;</span>
             </div>
           `;
         } else {
+          const dlUrl = '/api/download?path=' + encodeURIComponent(item.path) + pinParam;
           return `
             <div class="explorer-row">
               <div class="explorer-row-left">
                 $_iconFile
-                <span class="explorer-name">\${item.name}</span>
+                <span class="explorer-name" title="\${safeName}">\${safeName}</span>
                 <span class="explorer-size">\${formatBytes(item.size)}</span>
               </div>
-              <a href="/api/download?path=\${encodeURIComponent(item.path)}\${pinParam}" class="btn btn-sm btn-outline" download>
+              <a href="\${dlUrl}" class="btn btn-sm btn-outline" download="\${safeName}">
                 $_iconDownload
                 <span>Download</span>
               </a>
@@ -793,16 +860,20 @@ class WebPortalHtml {
           `;
         }
       }).join('');
+
+      container.innerHTML = html;
     }
 
     function filterItems() {
-      const query = document.getElementById('search-box').value.toLowerCase();
-      const filtered = loadedItems.filter(it => it.name.toLowerCase().includes(query));
+      const query = (document.getElementById('search-box').value || '').toLowerCase();
+      const filtered = loadedItems.filter(it => (it.name || '').toLowerCase().includes(query));
       renderItems(filtered);
     }
 
     function navigateTo(path) {
-      document.getElementById('search-box').value = '';
+      const searchBox = document.getElementById('search-box');
+      if (searchBox) searchBox.value = '';
+      pathHistory = [{ name: 'Root', path: '' }];
       loadFolder(path);
     }
 

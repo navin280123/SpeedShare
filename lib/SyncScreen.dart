@@ -628,6 +628,18 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
       );
       
       _showSuccessSnackBar('Storage sharing started with code: $_accessCode');
+
+      if (mounted) {
+        final url = 'http://${_hostIp ?? '192.168.x.x'}:8082';
+        DeviceAccessGuideModal.show(
+          context,
+          url: url,
+          pin: _accessCode,
+          title: 'Storage Sync Web Portal',
+          subtitle: 'Scan QR code with phone camera or open URL in any browser',
+          icon: Icons.folder_shared_rounded,
+        );
+      }
     } catch (e) {
       _showErrorSnackBar('Failed to start storage sharing: $e');
     }
@@ -862,27 +874,38 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
         if (_isPathAllowed(requestedPath)) {
           final directory = Directory(requestedPath);
           if (await directory.exists()) {
-            await for (final entity in directory.list()) {
-              try {
-                final stat = await entity.stat();
-                if (entity is File && (effectiveStart != null || effectiveEnd != null)) {
-                  if (effectiveStart != null && stat.modified.isBefore(effectiveStart)) continue;
-                  if (effectiveEnd != null && stat.modified.isAfter(effectiveEnd)) continue;
+            try {
+              await for (final entity in directory.list(followLinks: false).handleError((e) {
+                debugPrint('Skipping unreadable entity during sync browse: $e');
+              })) {
+                try {
+                  final stat = await entity.stat();
+                  if (entity is File && (effectiveStart != null || effectiveEnd != null)) {
+                    if (effectiveStart != null && stat.modified.isBefore(effectiveStart)) continue;
+                    if (effectiveEnd != null && stat.modified.isAfter(effectiveEnd)) continue;
+                  }
+                  files.add({
+                    'name': p.basename(entity.path),
+                    'path': entity.path,
+                    'isDirectory': entity is Directory,
+                    'size': entity is File ? stat.size : 0,
+                    'modified': stat.modified.toIso8601String(),
+                    'type': entity is File
+                        ? lookupMimeType(entity.path) ?? 'application/octet-stream'
+                        : 'directory',
+                  });
+                } catch (e) {
+                  // Skip files that can't be accessed
                 }
-                files.add({
-                  'name': p.basename(entity.path),
-                  'path': entity.path,
-                  'isDirectory': entity is Directory,
-                  'size': entity is File ? stat.size : 0,
-                  'modified': stat.modified.toIso8601String(),
-                  'type': entity is File
-                      ? lookupMimeType(entity.path) ?? 'application/octet-stream'
-                      : 'directory',
-                });
-              } catch (e) {
-                // Skip files that can't be accessed
               }
+            } catch (dirErr) {
+              debugPrint('Error listing directory $requestedPath: $dirErr');
             }
+          } else {
+            request.response.statusCode = 404;
+            request.response.write('Directory not found');
+            await request.response.close();
+            return;
           }
         } else {
           request.response.statusCode = 403;
@@ -988,37 +1011,41 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
     try {
       // Canonicalize the path to resolve '..' and symlinks, preventing traversal attacks
       final canonicalPath = p.canonicalize(filePath);
-      final isAllowed = _sharedPaths.any(
-        (sharedPath) => canonicalPath.startsWith(p.canonicalize(sharedPath)),
-      );
+      final isAllowed = _sharedPaths.any((sharedPath) {
+        final canonicalShared = p.canonicalize(sharedPath);
+        return canonicalPath == canonicalShared ||
+            p.isWithin(canonicalShared, canonicalPath);
+      });
       if (!isAllowed) return false;
 
-      // Enforce host camera date range protection
+      // Enforce host camera date range protection for files (directories can be traversed)
       if (_hostCameraDateRange != null &&
           (canonicalPath.toLowerCase().contains('camera') ||
-           canonicalPath.toLowerCase().contains('dcim') ||
-           canonicalPath.toLowerCase().contains('picture'))) {
-        final file = File(filePath);
-        if (file.existsSync()) {
-          final stat = file.statSync();
-          final start = DateTime(
-            _hostCameraDateRange!.start.year,
-            _hostCameraDateRange!.start.month,
-            _hostCameraDateRange!.start.day,
-            0,
-            0,
-            0,
-          );
-          final end = DateTime(
-            _hostCameraDateRange!.end.year,
-            _hostCameraDateRange!.end.month,
-            _hostCameraDateRange!.end.day,
-            23,
-            59,
-            59,
-          );
-          if (stat.modified.isBefore(start) || stat.modified.isAfter(end)) {
-            return false;
+              canonicalPath.toLowerCase().contains('dcim') ||
+              canonicalPath.toLowerCase().contains('picture'))) {
+        if (FileSystemEntity.isFileSync(canonicalPath)) {
+          final file = File(canonicalPath);
+          if (file.existsSync()) {
+            final stat = file.statSync();
+            final start = DateTime(
+              _hostCameraDateRange!.start.year,
+              _hostCameraDateRange!.start.month,
+              _hostCameraDateRange!.start.day,
+              0,
+              0,
+              0,
+            );
+            final end = DateTime(
+              _hostCameraDateRange!.end.year,
+              _hostCameraDateRange!.end.month,
+              _hostCameraDateRange!.end.day,
+              23,
+              59,
+              59,
+            );
+            if (stat.modified.isBefore(start) || stat.modified.isAfter(end)) {
+              return false;
+            }
           }
         }
       }
@@ -2043,10 +2070,13 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
                             icon: Icons.folder_shared_rounded,
                           );
                         },
-                        icon: const Icon(Icons.devices_rounded, size: 14),
+                        icon: const Icon(Icons.qr_code_rounded, size: 15),
                         label: const Text(
-                          'How to open on iOS / Android / PC',
-                          style: TextStyle(fontSize: 11),
+                          'Show QR Code & Access Guide',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: const Color(0xFF2AB673),

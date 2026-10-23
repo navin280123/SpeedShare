@@ -1706,10 +1706,10 @@ class FileSenderScreenState extends State<FileSenderScreen>
                     icon: Icons.language_rounded,
                   );
                 },
-                icon: const Icon(Icons.devices_rounded, size: 14),
+                icon: const Icon(Icons.qr_code_rounded, size: 15),
                 label: const Text(
-                  'How to open on iOS / Android / PC',
-                  style: TextStyle(fontSize: 11),
+                  'Show QR Code & Access Guide',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
                 ),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: accentGreen,
