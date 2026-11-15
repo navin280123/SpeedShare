@@ -14,6 +14,7 @@ import 'package:speedsharemob/NetworkStatusWidget.dart';
 import 'package:speedsharemob/SpeedShareAppBar.dart';
 import 'package:speedsharemob/NotificationService.dart';
 import 'package:speedsharemob/BackgroundService.dart';
+import 'package:speedsharemob/NetworkHelper.dart';
 
 class ReceiveScreen extends StatefulWidget {
   const ReceiveScreen({super.key});
@@ -254,66 +255,13 @@ class ReceiveScreenState extends State<ReceiveScreen>
       isLoadingIp = true;
     });
     try {
-      final interfaces = await NetworkInterface.list();
-      // First pass: find physical Wi-Fi / Ethernet / Hotspot interfaces
-      for (var interface in interfaces) {
-        final name = interface.name.toLowerCase();
-        if (name.contains('wlan') ||
-            name.contains('wi-fi') ||
-            name.contains('eth') ||
-            name.contains('en') ||
-            name.contains('ap') ||
-            name.contains('softap') ||
-            name.contains('bridge') ||
-            name.contains('rndis') ||
-            name.contains('swlan') ||
-            name.contains('local area connection')) {
-          for (var addr in interface.addresses) {
-            if (addr.type == InternetAddressType.IPv4 &&
-                !addr.address.startsWith('127.') &&
-                !addr.address.startsWith('169.254.') &&
-                !addr.address.startsWith('0.')) {
-              if (mounted) {
-                setState(() {
-                  ipAddress = addr.address;
-                  isLoadingIp = false;
-                });
-              }
-              return;
-            }
-          }
-        }
-      }
-
-      // Second pass: any valid non-loopback, non-cellular IPv4
-      for (var interface in interfaces) {
-        final name = interface.name.toLowerCase();
-        final isCellular = name.startsWith('rmnet') ||
-            name.startsWith('ccmni') ||
-            name.startsWith('pdp') ||
-            name.startsWith('dummy') ||
-            name.startsWith('seth') ||
-            name.startsWith('wwan') ||
-            name.startsWith('cellular') ||
-            name.startsWith('radio') ||
-            name.startsWith('ipa') ||
-            name.startsWith('v4-rmnet') ||
-            name.startsWith('usb_rmnet');
-        if (name.contains('lo') || isCellular) continue;
-        for (var addr in interface.addresses) {
-          if (addr.type == InternetAddressType.IPv4 &&
-              !addr.address.startsWith('127.') &&
-              !addr.address.startsWith('169.254.') &&
-              !addr.address.startsWith('0.')) {
-            if (mounted) {
-              setState(() {
-                ipAddress = addr.address;
-                isLoadingIp = false;
-              });
-            }
-            return;
-          }
-        }
+      final ip = await NetworkHelper.getLocalIpAddress();
+      if (mounted) {
+        setState(() {
+          ipAddress = ip ?? 'Not available';
+          isLoadingIp = false;
+        });
+        return;
       }
     } catch (e) {
       debugPrint('Error getting IP address: $e');

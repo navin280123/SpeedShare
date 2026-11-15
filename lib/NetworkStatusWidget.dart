@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:speedsharemob/NetworkSettingsHelper.dart';
+import 'package:speedsharemob/NetworkHelper.dart';
 
 enum NetworkWidgetMode {
   sender,
@@ -23,18 +24,7 @@ class NetworkStatusWidget extends StatefulWidget {
 
   /// Helper to check if an interface is a pure cellular/mobile data interface
   static bool _isCellularInterface(String name) {
-    final lower = name.toLowerCase();
-    return lower.startsWith('rmnet') ||
-        lower.startsWith('ccmni') ||
-        lower.startsWith('pdp') ||
-        lower.startsWith('dummy') ||
-        lower.startsWith('seth') ||
-        lower.startsWith('wwan') ||
-        lower.startsWith('cellular') ||
-        lower.startsWith('radio') ||
-        lower.startsWith('ipa') ||
-        lower.startsWith('v4-rmnet') ||
-        lower.startsWith('usb_rmnet');
+    return NetworkHelper.isCellularInterface(name);
   }
 
   /// Static helper to check if an active local network IPv4 interface exists

@@ -21,6 +21,7 @@ import 'package:speedsharemob/NotificationService.dart';
 import 'package:speedsharemob/BackgroundService.dart';
 import 'package:speedsharemob/WebPortalHtml.dart';
 import 'package:speedsharemob/DeviceAccessGuideModal.dart';
+import 'package:speedsharemob/NetworkHelper.dart';
 
 enum SyncTabMode { connect, sync }
 
@@ -82,21 +83,11 @@ class SyncScreenState extends State<SyncScreen> with TickerProviderStateMixin {
 
   Future<void> _loadHostIp() async {
     try {
-      final interfaces = await NetworkInterface.list(
-        type: InternetAddressType.IPv4,
-        includeLinkLocal: false,
-      );
-      for (var iface in interfaces) {
-        for (var addr in iface.addresses) {
-          if (!addr.isLoopback && addr.type == InternetAddressType.IPv4) {
-            if (mounted) {
-              setState(() {
-                _hostIp = addr.address;
-              });
-            }
-            return;
-          }
-        }
+      final ip = await NetworkHelper.getLocalIpAddress();
+      if (mounted && ip != null) {
+        setState(() {
+          _hostIp = ip;
+        });
       }
     } catch (_) {}
   }

@@ -10,6 +10,7 @@ import 'package:speedsharemob/DeveloperDetailsScreen.dart';
 import 'package:speedsharemob/DeviceNameManager.dart';
 import 'package:speedsharemob/SpeedShareAppBar.dart';
 import 'package:speedsharemob/NetworkSettingsHelper.dart';
+import 'package:speedsharemob/NetworkHelper.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -46,26 +47,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _fetchLocalIp() async {
     try {
-      final interfaces = await NetworkInterface.list();
-      for (var interface in interfaces) {
-        for (var addr in interface.addresses) {
-          if (addr.type == InternetAddressType.IPv4 &&
-              !addr.address.startsWith('127.') &&
-              !addr.address.startsWith('0.')) {
-            if (mounted) {
-              setState(() {
-                localIp = addr.address;
-              });
-            }
-            return;
-          }
-        }
+      final ip = await NetworkHelper.getLocalIpAddress();
+      if (mounted) {
+        setState(() {
+          localIp = ip ?? 'Not Connected';
+        });
       }
-    } catch (_) {}
-    if (mounted) {
-      setState(() {
-        localIp = 'Not Connected';
-      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          localIp = 'Not Connected';
+        });
+      }
     }
   }
 
@@ -1157,7 +1150,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: const Text(
-                      'v1.2.3+18 • Stable Release',
+                      'v1.2.4+19 • Stable Release',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.bold,

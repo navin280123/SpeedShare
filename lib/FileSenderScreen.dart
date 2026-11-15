@@ -18,6 +18,7 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:speedsharemob/FastFilePicker.dart';
 import 'package:speedsharemob/WebPortalHtml.dart';
 import 'package:speedsharemob/DeviceAccessGuideModal.dart';
+import 'package:speedsharemob/NetworkHelper.dart';
 
 class FileSenderScreen extends StatefulWidget {
   const FileSenderScreen({super.key});
@@ -315,17 +316,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
       // Collect non-loopback, non-cellular active IPv4 interfaces
       final candidateInterfaces = interfaces.where((i) {
         final name = i.name.toLowerCase();
-        final isCellular = name.startsWith('rmnet') ||
-            name.startsWith('ccmni') ||
-            name.startsWith('pdp') ||
-            name.startsWith('dummy') ||
-            name.startsWith('seth') ||
-            name.startsWith('wwan') ||
-            name.startsWith('cellular') ||
-            name.startsWith('radio') ||
-            name.startsWith('ipa') ||
-            name.startsWith('v4-rmnet') ||
-            name.startsWith('usb_rmnet');
+        final isCellular = NetworkHelper.isCellularInterface(name);
         return !name.contains('lo') &&
             !name.contains('virtual') &&
             !name.contains('loopback') &&
@@ -1408,20 +1399,7 @@ class FileSenderScreenState extends State<FileSenderScreen>
   }
 
   Future<String?> _getSenderLocalIp() async {
-    try {
-      final interfaces = await NetworkInterface.list(
-        type: InternetAddressType.IPv4,
-        includeLinkLocal: false,
-      );
-      for (var iface in interfaces) {
-        for (var addr in iface.addresses) {
-          if (!addr.isLoopback && addr.type == InternetAddressType.IPv4) {
-            return addr.address;
-          }
-        }
-      }
-    } catch (_) {}
-    return null;
+    return await NetworkHelper.getLocalIpAddress();
   }
 
   Future<void> _startWebShare() async {
